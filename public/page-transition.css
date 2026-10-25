@@ -1,0 +1,18 @@
+html[data-page-transition]::before,html[data-page-transition]::after{position:fixed;pointer-events:none;z-index:100000;content:""}
+html[data-page-transition]::before{inset:0;background:#fffdf8}
+html[data-page-transition]::after{content:"✽";left:calc(50% - 32px);top:calc(50% - 32px);width:64px;height:64px;text-align:center;font:64px/1 Georgia,serif;color:#fa604b}
+html[data-page-transition="leave"]::before{animation:editor-cover-in 190ms ease-out both}
+html[data-page-transition="leave"]::after{animation:editor-flower-in 190ms ease-out both}
+html[data-page-transition="reveal"]::before{animation:editor-cover-out 440ms ease-in-out both}
+html[data-page-transition="reveal"]::after{animation:editor-flower-out 360ms ease-in both}
+@keyframes editor-cover-in{from{opacity:0}to{opacity:1}}
+@keyframes editor-cover-out{from{opacity:1}to{opacity:0}}
+@keyframes editor-flower-in{from{opacity:0;transform:translateY(8px) rotate(-15deg) scale(.9)}to{opacity:1;transform:none}}
+@keyframes editor-flower-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-8px) rotate(15deg) scale(1.08)}}
+/* Reduced motion keeps only a brief opacity dissolve, with no moving artwork.
+   These scoped rules override the site's general animation reset. */
+@media(prefers-reduced-motion:reduce){
+  html[data-page-transition]::after{display:none!important;animation:none!important}
+  html[data-page-transition="leave"]::before{animation:editor-cover-in 160ms linear both!important}
+  html[data-page-transition="reveal"]::before{animation:editor-cover-out 180ms linear both!important}
+}

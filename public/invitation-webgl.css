@@ -1,0 +1,37 @@
+/* Each material is painted into the local coordinate system of its original
+   HTML surface. Its existing parent owns all transforms, clipping and opacity. */
+canvas.invitation-material-layer{
+  position:absolute!important;
+  inset:0!important;
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  min-width:0!important;
+  min-height:0!important;
+  max-width:none!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:inherit;
+  pointer-events:none!important;
+  user-select:none;
+  touch-action:auto;
+  z-index:2!important;
+}
+canvas.invitation-atmosphere-layer{
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100vh!important;
+  height:100dvh!important;
+  display:block;
+  pointer-events:none!important;
+  user-select:none;
+  z-index:0!important;
+}
+@media(prefers-reduced-motion:reduce){
+  canvas.invitation-material-layer,canvas.invitation-atmosphere-layer{display:none!important}
+}
+@media print{
+  canvas.invitation-material-layer,canvas.invitation-atmosphere-layer{display:none!important}
+}

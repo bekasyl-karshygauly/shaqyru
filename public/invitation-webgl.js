@@ -1,0 +1,269 @@
+import {invitationVertexShader,invitationFragmentShader} from './invitation-shaders.js';
+
+const clamp=value=>Number.isFinite(Number(value))?Math.max(0,Math.min(1,Number(value))):0;
+const OPENING_SURFACES='.scene-image,.scene-panel,.eb,.ect,.ef,.efl,.door,.sc-sheet,.sc-bar,.bx-box,.bx-lid,.cl,.cr,.ct-top,.ht-wing,.fl,.pt-ring,.pt-core,.zm';
+let currentController=null;
+
+/* A single detached WebGL canvas renders a small atlas. Local presentation
+   canvases inherit the real DOM flaps' 3D transforms, including clip-path and
+   mosaic panels; there is no duplicate geometry that can drift from GSAP. */
+export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
+  currentController?.destroy();
+  let destroyed=false,ready=false,contextLost=false,printing=false,failed=false,frame=0,timer=0;
+  let lastPaint=-Infinity,dirty=true,needsLayout=true,renderCount=0,renderer=null;
+  let material=null,geometry=null,scene=null,camera=null,mesh=null,three=null,atlas=null;
+  let atlasSize={width:0,height:0},surfaces=[],resizeObserver=null,intersectionObserver=null;
+  let bitmapPipeline=false,painting=false,generation=0;
+  const latest={opening:openingRoot?0:1,card:0,depth:0};
+  const root=card?.matches?.('.inv')?card:card?.querySelector?.('.inv');
+  const media=window.matchMedia('(prefers-reduced-motion: reduce)');
+  const printMedia=window.matchMedia('print');printing=printMedia.matches;
+  const disposers=[];
+  const mobile=()=>window.matchMedia('(max-width: 767px), (pointer: coarse)').matches;
+  const setState=value=>{if(!destroyed&&host)host.dataset.webglState=value};
+  const listen=(target,event,handler,options)=>{target.addEventListener(event,handler,options);disposers.push(()=>target.removeEventListener(event,handler,options))};
+  const cancelPending=()=>{cancelAnimationFrame(frame);clearTimeout(timer);frame=0;timer=0};
+  const metadata=(snapshot=latest)=>{
+    const values={opening:snapshot.opening.toFixed(5),card:snapshot.card.toFixed(5),depth:snapshot.depth.toFixed(5)};
+    for(const surface of surfaces){Object.assign(surface.canvas.dataset,values);surface.canvas.dataset.webglFrame=String(renderCount)}
+    if(host){host.dataset.webglOpening=values.opening;host.dataset.webglCard=values.card;host.dataset.webglDepth=values.depth;host.dataset.webglFrame=String(renderCount)}
+  };
+  function visible(surface){
+    if(surface.kind==='atmosphere')return true;
+    const element=surface.element;
+    if(!element.isConnected)return false;
+    if(surface.kind==='opening'&&(latest.opening>=.999||openingRoot?.style.visibility==='hidden'))return false;
+    const rect=element.getBoundingClientRect(),height=window.innerHeight,width=window.innerWidth;
+    return rect.width>0&&rect.height>0&&rect.bottom>-80&&rect.top<height+80&&rect.right>-80&&rect.left<width+80;
+  }
+  function paused(){return document.hidden||printing||media.matches||contextLost}
+  function requestPaint(layout=false){
+    dirty=true;if(layout)needsLayout=true;
+    if(destroyed||!ready||paused()||painting||frame||timer)return;
+    // Only a changed scroll uniform, layout or lifecycle event requests a frame.
+    // The trailing paint publishes the exact final progress after a quick swipe.
+    const interval=1000/(mobile()?30:45),remaining=interval-(performance.now()-lastPaint);
+    if(remaining>1){timer=setTimeout(()=>{timer=0;frame=requestAnimationFrame(paint)},remaining)}
+    else frame=requestAnimationFrame(paint);
+  }
+  function addSurface(element,kind,index){
+    const canvas=document.createElement('canvas');
+    canvas.className=kind==='atmosphere'?'invitation-atmosphere-layer':'invitation-material-layer';
+    canvas.setAttribute('aria-hidden','true');canvas.setAttribute('role','presentation');
+    canvas.dataset.webglLayer=kind;canvas.dataset.webglFrame='0';canvas.tabIndex=-1;
+    const bitmapContext=bitmapPipeline?canvas.getContext('bitmaprenderer',{alpha:true}):null;
+    const context=bitmapContext||canvas.getContext('2d',{alpha:true});
+    if(!context)return;
+    let previousPosition=null;
+    if(kind!=='atmosphere'&&getComputedStyle(element).position==='static'){
+      previousPosition={value:element.style.getPropertyValue('position'),priority:element.style.getPropertyPriority('position')};
+      element.style.setProperty('position','relative');
+    }
+    element.append(canvas);
+    canvas.dataset.webglPresentation=bitmapContext?'bitmap':'2d';
+    surfaces.push({element,canvas,context,bitmap:!!bitmapContext,kind,index,previousPosition,x:0,y:0,width:1,height:1,cssWidth:1,cssHeight:1});
+    if(kind!=='atmosphere'){resizeObserver?.observe(element);intersectionObserver?.observe(element)}
+  }
+  function pack(items,maxWidth){
+    let x=0,y=0,rowHeight=0,width=0;
+    for(const item of [...items].sort((a,b)=>b.height-a.height)){
+      if(x&&x+item.width>maxWidth){y+=rowHeight;x=0;rowHeight=0}
+      item.x=x;item.y=y;x+=item.width;rowHeight=Math.max(rowHeight,item.height);width=Math.max(width,x);
+    }
+    return {width:Math.max(1,width),height:Math.max(1,y+rowHeight)};
+  }
+  function layout(){
+    needsLayout=false;
+    const small=mobile(),budget=small?1200000:2000000,cap=small?512:640;
+    const dpr=Math.min(window.devicePixelRatio||1,small?1.25:1.5);
+    const maxTexture=Math.min(renderer.capabilities.maxTextureSize,2048);
+    for(const surface of surfaces){
+      const atmosphere=surface.kind==='atmosphere';
+      surface.cssWidth=Math.max(1,atmosphere?window.innerWidth:surface.element.clientWidth);
+      surface.cssHeight=Math.max(1,atmosphere?window.innerHeight:surface.element.clientHeight);
+      const scale=Math.min(dpr,cap/surface.cssWidth,cap/surface.cssHeight)*(atmosphere?.72:1);
+      surface.desiredWidth=Math.max(8,Math.floor(surface.cssWidth*scale));
+      surface.desiredHeight=Math.max(8,Math.floor(surface.cssHeight*scale));
+    }
+    let scale=1,result;
+    for(let attempt=0;attempt<16;attempt++){
+      for(const surface of surfaces){surface.width=Math.max(8,Math.floor(surface.desiredWidth*scale));surface.height=Math.max(8,Math.floor(surface.desiredHeight*scale))}
+      const widest=Math.max(...surfaces.map(s=>s.width));
+      const preferred=Math.min(maxTexture,Math.max(widest,small?1024:1536));
+      result=pack(surfaces,preferred);
+      if(result.width*result.height<=budget&&result.height<=maxTexture)break;
+      scale*=Math.min(.9,Math.sqrt(budget/(result.width*result.height))*.96,maxTexture/result.height*.96);
+    }
+    atlasSize=result;renderer.setSize(result.width,result.height,false);
+    for(const surface of surfaces){
+      if(surface.canvas.width!==surface.width)surface.canvas.width=surface.width;
+      if(surface.canvas.height!==surface.height)surface.canvas.height=surface.height;
+      surface.canvas.dataset.webglAtlas=`${result.width}x${result.height}`;
+    }
+    if(host){host.dataset.webglAtlasWidth=String(result.width);host.dataset.webglAtlasHeight=String(result.height)}
+  }
+  function tiltFor(element,cache){
+    let x=0,y=0,current=element,steps=0;
+    while(current&&steps++<5){
+      let value=cache.get(current);
+      if(!value){
+        const transform=getComputedStyle(current).transform;
+        try{
+          const matrix=transform&&transform!=='none'?new DOMMatrixReadOnly(transform):null;
+          value=matrix?{x:matrix.m13,y:matrix.m23}:{x:0,y:0};
+        }catch{value={x:0,y:0}}
+        cache.set(current,value);
+      }
+      x+=value.x;y+=value.y;
+      if(current===openingRoot||current===host)break;
+      current=current.parentElement;
+    }
+    return {x:Math.max(-1,Math.min(1,x)),y:Math.max(-1,Math.min(1,y))};
+  }
+  async function paint(){
+    frame=0;if(destroyed||!ready||paused())return;
+    if(!dirty)return;
+    painting=true;dirty=false;
+    const version=generation,snapshot={...latest};
+    let image=null,tiles=[];
+    try{
+      if(needsLayout)layout();
+      const hostRect=host.getBoundingClientRect();
+      const hostVisible=hostRect.width>0&&hostRect.height>0&&hostRect.bottom>-80&&hostRect.top<window.innerHeight+80;
+      const openingVisible=openingRoot?.isConnected&&latest.opening<.999;
+      const active=hostVisible||openingVisible?surfaces.filter(visible):[];
+      if(!active.length){setState('suspended');return}
+      const uniforms=material.uniforms,cache=new Map();
+      uniforms.uOpening.value=latest.opening;uniforms.uCard.value=latest.card;uniforms.uDepth.value=latest.depth;
+      renderer.setScissorTest(false);renderer.setClearColor(0x000000,0);renderer.clear();renderer.setScissorTest(true);
+      for(const surface of active){
+        uniforms.uMode.value=surface.kind==='atmosphere'?2:surface.section?3:surface.kind==='opening'?1:0;
+        uniforms.uResolution.value.set(surface.width,surface.height);
+        uniforms.uCssSize.value.set(surface.cssWidth,surface.cssHeight);
+        uniforms.uSeed.value=surface.index*.713;
+        const tilt=surface.kind==='atmosphere'?{x:0,y:0}:tiltFor(surface.element,cache);uniforms.uTilt.value.set(tilt.x,tilt.y);
+        // The WebGL viewport starts at bottom-left; the copied atlas uses top-left.
+        const y=atlasSize.height-surface.y-surface.height;
+        renderer.setViewport(surface.x,y,surface.width,surface.height);renderer.setScissor(surface.x,y,surface.width,surface.height);
+        renderer.render(scene,camera);
+      }
+      for(const surface of active.filter(s=>!s.bitmap)){
+        surface.context.clearRect(0,0,surface.width,surface.height);
+        surface.context.drawImage(atlas,surface.x,surface.y,surface.width,surface.height,0,0,surface.width,surface.height);
+      }
+      const bitmapSurfaces=active.filter(s=>s.bitmap);
+      if(bitmapSurfaces.length){
+        image=atlas.transferToImageBitmap();
+        // Crop GPU-backed image handles, then transfer ownership to the DOM
+        // canvases. This avoids a synchronous WebGL→CPU readback per flap.
+        const results=await Promise.allSettled(bitmapSurfaces.map(async surface=>({surface,image:await createImageBitmap(image,surface.x,surface.y,surface.width,surface.height)})));
+        tiles=results.filter(result=>result.status==='fulfilled').map(result=>result.value);
+        if(results.some(result=>result.status==='rejected'))throw Error('MATERIAL_TRANSFER_FAILED');
+        if(destroyed||paused()||version!==generation)return;
+        for(const tile of tiles){tile.surface.context.transferFromImageBitmap(tile.image);tile.image=null}
+      }
+      renderCount++;lastPaint=performance.now();metadata(snapshot);setState('ready');
+    }catch{
+      // A decorative renderer failure must never affect the readable invitation.
+      if(!destroyed)failRenderer();
+    }finally{
+      image?.close();for(const tile of tiles)tile.image?.close();painting=false;
+      if(dirty&&!destroyed&&ready&&!paused())requestPaint();
+    }
+  }
+  function clearSurfaces(){for(const surface of surfaces){if(surface.bitmap)surface.context.transferFromImageBitmap(null);else surface.context.clearRect(0,0,surface.canvas.width,surface.canvas.height)}}
+  function failRenderer(){
+    failed=true;ready=false;cancelPending();clearSurfaces();
+    geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();setState('fallback');
+  }
+  const controller={
+    update(values={}){
+      let changed=false;
+      for(const key of ['opening','card','depth'])if(key in values){const value=clamp(values[key]);if(value!==latest[key]){latest[key]=value;changed=true}}
+      if(changed)requestPaint();
+    },
+    refresh(){requestPaint(true)},
+    inspect(){return {state:host?.dataset.webglState||'fallback',surfaceCount:surfaces.length,atlas:{...atlasSize},renderCount,pending:Boolean(frame||timer),contextLost,progress:{...latest}}},
+    destroy(){
+      if(destroyed)return;destroyed=true;generation++;cancelPending();resizeObserver?.disconnect();intersectionObserver?.disconnect();
+      for(const dispose of disposers.splice(0))dispose();
+      for(const surface of surfaces){
+        surface.canvas.remove();
+        if(surface.previousPosition&&surface.element.style.getPropertyValue('position')==='relative'){
+          if(surface.previousPosition.value)surface.element.style.setProperty('position',surface.previousPosition.value,surface.previousPosition.priority);
+          else surface.element.style.removeProperty('position');
+        }
+        surface.canvas.width=surface.canvas.height=1;
+      }
+      surfaces=[];geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();
+      if(atlas)atlas.width=atlas.height=1;
+      if(host)for(const key of ['webglState','webglOpening','webglCard','webglDepth','webglFrame','webglAtlasWidth','webglAtlasHeight'])delete host.dataset[key];
+      if(currentController===controller)currentController=null;
+    }
+  };
+  currentController=controller;
+  if(!host||!root||media.matches||typeof WebGL2RenderingContext==='undefined'){setState('fallback');return controller}
+  setState('loading');
+  // Deferring the local engine avoids allocating a renderer for reduced motion
+  // and lets the already working invitation become interactive first.
+  import('./vendor/three.module.min.js').then(THREE=>{
+    if(destroyed)return;
+    if(media.matches){setState('fallback');return}
+    three=THREE;
+    try{
+      bitmapPipeline=typeof OffscreenCanvas!=='undefined'&&typeof OffscreenCanvas.prototype.transferToImageBitmap==='function'&&typeof ImageBitmapRenderingContext!=='undefined'&&typeof createImageBitmap==='function';
+      atlas=bitmapPipeline?new OffscreenCanvas(1,1):document.createElement('canvas');
+      const contextAttributes={alpha:true,antialias:false,depth:false,stencil:false,premultipliedAlpha:true,preserveDrawingBuffer:false,powerPreference:'low-power'};
+      const context=atlas.getContext('webgl2',contextAttributes);
+      if(!context){setState('fallback');return}
+      const createRenderer=()=>{const value=new three.WebGLRenderer({canvas:atlas,context,...contextAttributes});value.setPixelRatio(1);value.autoClear=false;value.toneMapping=three.NoToneMapping;value.outputColorSpace=three.SRGBColorSpace;return value};
+      renderer=createRenderer();
+      scene=new three.Scene();camera=new three.OrthographicCamera(-1,1,1,-1,0,1);geometry=new three.PlaneGeometry(2,2);
+      const accent=getComputedStyle(root).getPropertyValue('--ac').trim(),color=new three.Color(0xd4af68);
+      if(/^(#[a-f\d]{3,8}|rgba?\([\d.,%\s]+\))$/i.test(accent))color.setStyle(accent);
+      material=new three.ShaderMaterial({
+        vertexShader:invitationVertexShader,fragmentShader:invitationFragmentShader,transparent:true,depthTest:false,depthWrite:false,toneMapped:false,blending:three.NormalBlending,
+        uniforms:{uResolution:{value:new three.Vector2(1,1)},uCssSize:{value:new three.Vector2(1,1)},uTilt:{value:new three.Vector2(0,0)},uAccent:{value:color},uOpening:{value:latest.opening},uCard:{value:latest.card},uDepth:{value:latest.depth},uSeed:{value:0},uMode:{value:0}}
+      });
+      mesh=new three.Mesh(geometry,material);mesh.frustumCulled=false;scene.add(mesh);
+      resizeObserver=new ResizeObserver(()=>requestPaint(true));
+      if(typeof IntersectionObserver!=='undefined')intersectionObserver=new IntersectionObserver(()=>requestPaint(),{rootMargin:'80px'});
+      addSurface(root,'paper',0);
+      let index=1;
+      if(openingRoot)for(const element of openingRoot.querySelectorAll(OPENING_SURFACES)){if(surfaces.length>=15)break;addSurface(element,'opening',index++)}
+      for(const element of [...host.querySelectorAll('.guest-hero,#guest-place')].slice(0,2)){
+        if(surfaces.length>=15)break;
+        addSurface(element,'paper',index++);surfaces[surfaces.length-1].section=true;
+      }
+      addSurface(document.body,'atmosphere',index);
+      listen(atlas,'webglcontextlost',event=>{event.preventDefault();contextLost=true;generation++;cancelPending();clearSurfaces();setState('fallback')});
+      listen(atlas,'webglcontextrestored',()=>{
+        if(destroyed||failed)return;
+        try{
+          // A transferred OffscreenCanvas can restore with invalidated backing
+          // images. Rebuild GPU resources on the same context; don't reuse old
+          // VAOs/programs or let a pre-loss bitmap resurface.
+          generation++;
+          const restoredMaterial=material.clone();geometry.dispose();material.dispose();renderer.dispose();
+          renderer=createRenderer();geometry=new three.PlaneGeometry(2,2);material=restoredMaterial;mesh.geometry=geometry;mesh.material=material;
+          contextLost=false;ready=true;requestPaint(true);
+        }catch{failRenderer()}
+      });
+      listen(window,'resize',()=>requestPaint(true),{passive:true});
+      listen(window,'orientationchange',()=>requestPaint(true),{passive:true});
+      listen(window.visualViewport||window,'resize',()=>requestPaint(true),{passive:true});
+      listen(document,'visibilitychange',()=>{if(document.hidden){cancelPending();setState('suspended')}else requestPaint()});
+      listen(window,'beforeprint',()=>{printing=true;cancelPending();setState('suspended')});
+      listen(window,'afterprint',()=>{printing=false;requestPaint(true)});
+      listen(printMedia,'change',event=>{
+        printing=event.matches;
+        if(printing){cancelPending();setState('suspended')}else requestPaint(true);
+      });
+      listen(media,'change',event=>{if(event.matches){cancelPending();clearSurfaces();setState('fallback')}else requestPaint(true)});
+      ready=true;metadata();requestPaint(true);
+    }catch{
+      failRenderer();
+    }
+  }).catch(()=>setState('fallback'));
+  return controller;
+}

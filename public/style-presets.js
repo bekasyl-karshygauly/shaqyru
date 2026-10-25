@@ -1,0 +1,12 @@
+const presets=[
+  {name:['Нежная свадьба','Нәзік үйлену тойы'],note:['Сад · мягкий свет · плавное раскрытие','Бақ · жұмсақ жарық · баяу ашылу'],values:{scene:'garden',sceneSpeed:'slow',sceneDensity:'low',anim:'bloom',fx:'petals',font:'Lora',frame:'double',c:{bg:'#fffaf4',ink:'#3d302d',ac:'#a54d51'}}},
+  {name:['Яркий день рождения','Жарқын туған күн'],note:['Шары · конфетти · фотомозаика','Шарлар · конфетти · фотомозаика'],values:{scene:'balloons',sceneSpeed:'normal',sceneDensity:'high',anim:'mosaic',fx:'confetti',font:'Comfortaa',frame:'round',c:{bg:'#fff8e5',ink:'#263c56',ac:'#b3412c'}}},
+  {name:['Қазақ тойы','Қазақ тойы'],note:['Орнамент · золото · раскрытие альбома','Ою · алтын · альбомның ашылуы'],values:{scene:'ornament',sceneSpeed:'slow',sceneDensity:'medium',anim:'album',fx:'dust',font:'Lora',frame:'double',c:{bg:'#fffaf0',ink:'#224f50',ac:'#906117'}}}
+];
+export function mountPresets(host,{state,onChange}){
+  let undo=null,message='';
+  function update(){const k=state().lang==='kz';host.innerHTML='<h4></h4><p class="mu"></p><div class="style-presets"></div><p class="preset-status" role="status"></p><button class="gh" type="button" hidden></button>';host.querySelector('h4').textContent=k?'Дайын үйлесімдер':'Готовые сочетания';host.querySelector('p').textContent=k?'Фото, мәтін және музыка сақталады.':'Меняются только цвета, шрифт, рамка и эффекты. Фото, текст и музыка сохраняются.';host.querySelector('[role=status]').textContent=message;
+    for(const preset of presets){const b=document.createElement('button');b.type='button';const title=document.createElement('strong'),note=document.createElement('span');title.textContent=preset.name[k?1:0];note.textContent=preset.note[k?1:0];b.append(title,note);b.onclick=()=>{const s=state();undo=Object.fromEntries(Object.keys(preset.values).map(key=>[key,structuredClone(s[key])]));Object.assign(s,structuredClone(preset.values));message=k?'Үйлесім қолданылды. Жеке баптауға болады.':'Сочетание применено. Любую настройку можно изменить.';onChange();update()};host.querySelector('.style-presets').append(b)}
+    const back=host.querySelector('button.gh');back.hidden=!undo;back.textContent=k?'Алдыңғы стильді қайтару':'Вернуть предыдущее оформление';back.onclick=()=>{Object.assign(state(),undo);undo=null;message=k?'Алдыңғы стиль қайтарылды':'Предыдущее оформление восстановлено';onChange();update()};
+  }update();return {update};
+}

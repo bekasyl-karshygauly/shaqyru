@@ -1,0 +1,19 @@
+/* Native document scrolling: no wheel/touch interception or nested scroller. */
+.invitation-scroll-runway{position:relative;flex:none;width:100%}
+.invitation-scroll-pin{position:sticky;top:12px;width:100%}
+.scroll-section-track{position:relative;width:100%;min-width:0}
+.intro.scroll-controlled{height:100vh;height:100dvh;touch-action:pan-y pinch-zoom}
+.intro.scroll-controlled.open{pointer-events:auto}
+.intro.scroll-controlled .seal{pointer-events:auto}
+.scroll-opening-hint{position:absolute;left:16px;right:16px;bottom:max(78px,calc(64px + env(safe-area-inset-bottom)));margin:0;text-align:center;font:500 12px/1.5 Montserrat,system-ui;pointer-events:none;text-wrap:balance;color:inherit}
+.scroll-motion .scroll-depth{translate:0 var(--scroll-depth,0px)}
+.scroll-motion .bgp.scroll-depth{top:-22px;bottom:-22px;height:calc(100% + 44px)}
+.scroll-motion .in .inv.an .or{animation:up2 .6s both}
+.scroll-decor-float{display:inline-block;animation:fl 3s ease-in-out .6s infinite}
+.scroll-motion-reset,.scroll-motion-reset *,.scroll-motion-reset *::before,.scroll-motion-reset *::after{animation-name:none!important}
+@media print{
+  .invitation-scroll-runway{height:auto!important}
+  .invitation-scroll-pin{position:static!important}
+  .intro.scroll-controlled{display:none!important}
+  .scroll-motion [data-motion-reveal],.scroll-motion [data-motion-reveal] h3,.scroll-motion [data-motion-reveal] .place-name,.scroll-motion [data-motion-reveal] .place-addr,.scroll-motion .cw,.scroll-motion .cw *{opacity:1!important;transform:none!important;translate:none!important}
+}

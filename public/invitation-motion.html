@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#fffaf3">
+  <title>Живое приглашение — Шақыру</title>
+  <link rel="stylesheet" href="/invitation-motion.css">
+  <link rel="stylesheet" href="/opening-scenes.css">
+  <script src="/opening-scenes.js" defer></script>
+  <script src="/intro-photo-editor.js" defer></script>
+  <script src="/invitation-motion.js" defer></script>
+</head>
+<body data-motion="off">
+  <header class="preview-bar">
+    <a href="/create">← В редактор</a>
+    <span class="preview-label">Макет в движении</span>
+    <div class="tools"><button id="motion" aria-pressed="false" hidden>Эффекты: выключены</button><button id="replay" hidden>Повторить</button></div>
+  </header>
+  <main>
+    <details id="motion-settings" class="motion-settings" open>
+      <summary>Своё фото и стиль открытия</summary>
+      <div class="motion-customize"><div id="intro-photo-editor"></div><div><h2>Выберите настроение</h2><p>Каждый вариант открывается по-своему. Нажмите на карточку, затем на печать.</p><div id="demo-scenes" class="demo-scenes"></div><p id="demo-save" role="status"></p><a href="/create#sec-anim">Все 17 вариантов в редакторе →</a></div></div>
+    </details>
+    <section id="opening" aria-labelledby="opening-title">
+      <div class="paper-door left" aria-hidden="true"><span>❦</span></div>
+      <div class="paper-door right" aria-hidden="true"><span>❦</span></div>
+      <div class="opening-copy">
+        <p class="eyebrow">ШАҚЫРУ · С ЛЮБОВЬЮ К ВАМ</p>
+        <p class="small-script">Один день. Целая история.</p>
+        <h1 id="opening-title">Арман <em>&</em> Айгерім</h1>
+        <p class="opening-date">19 · 12 · 2026</p>
+        <button id="open" class="seal"><span aria-hidden="true">А<span class="seal-heart">♡</span>А</span><span class="seal-caption">Смотреть<br>с анимацией</span></button>
+        <p class="opening-hint">Коснитесь печати — история начнётся</p>
+        <button id="open-static" class="quiet">Открыть без движения</button>
+      </div>
+    </section>
+
+    <article id="invitation" lang="kk" hidden>
+      <section class="hero">
+        <div class="ornament ornament-left" aria-hidden="true">❦</div><div class="ornament ornament-right" aria-hidden="true">❦</div>
+        <p class="eyebrow reveal">ҮЙЛЕНУ ТОЙЫНА ШАҚЫРУ</p>
+        <h1 class="names reveal" id="names" tabindex="-1">Арман <em>&</em><br>Айгерім</h1>
+        <p class="hero-date reveal">19 ЖЕЛТОҚСАН · 2026</p>
+        <div class="portrait-wrap reveal">
+          <div class="portrait" role="img" aria-label="Арман мен Айгерімнің күн сәулесіне бөленген бақтағы иллюстрациялық суреті"><div class="photo"></div></div>
+          <span class="photo-note">Біздің бақытты күніміз</span>
+          <svg class="ribbon ribbon-left" viewBox="0 0 120 500" fill="none" aria-hidden="true"><path d="M100 -30C-70 90 170 150 35 265S140 390 25 530" stroke="currentColor" stroke-width="22"/><path d="M100 -30C-70 90 170 150 35 265S140 390 25 530" stroke="#ffe4d5" stroke-width="2"/></svg>
+          <svg class="ribbon ribbon-right" viewBox="0 0 120 500" fill="none" aria-hidden="true"><path d="M100 -30C-70 90 170 150 35 265S140 390 25 530" stroke="currentColor" stroke-width="16"/></svg>
+        </div>
+        <div class="petals" aria-hidden="true"></div>
+        <a class="scroll-cue" href="#details">Махаббатпен шақырамыз <span aria-hidden="true">↓</span></a>
+      </section>
+
+      <section id="details" class="details reveal">
+        <span class="flourish" aria-hidden="true">― ❦ ―</span>
+        <h2>Құрметті қонақтар!</h2>
+        <p>Сіздерді үйлену тойымыздың<br>қадірлі қонағы болуға шақырамыз!</p>
+        <p class="personal-note">Ең бақытты сәтімізді сіздермен<br>бірге бөліскіміз келеді.</p>
+        <div class="date-block"><span class="day">19</span><div><strong>Желтоқсан 2026</strong><span>Сенбі · 18:00</span></div></div>
+      </section>
+
+      <section class="venue reveal" aria-labelledby="venue-title">
+        <p class="eyebrow">КЕЗДЕСЕТІН ОРНЫМЫЗ</p>
+        <h2 id="venue-title">Алтын сарай</h2>
+        <p>Атырау қ., Азаттық даңғ., 10</p>
+        <div class="venue-line" aria-hidden="true">❧</div>
+        <p class="closing">Сіздерді асыға күтеміз!</p>
+        <p class="signature">Арман & Айгерім</p>
+      </section>
+      <footer lang="ru">Шақыру <span>·</span> Предпросмотр оформления</footer>
+    </article>
+    <noscript><p class="no-script">Для анимированного просмотра включите JavaScript.</p></noscript>
+  </main>
+</body>
+</html>
