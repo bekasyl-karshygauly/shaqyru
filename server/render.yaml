@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: shaqyru
+    runtime: docker
+    plan: free
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: AUDIO_BUCKET
+        value: shaqyru-audio
+      - key: SUPABASE_URL
+        value: https://onqbmwaaqovbrlagxdgx.supabase.co
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: ADMIN_KEY
+        generateValue: true

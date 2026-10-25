@@ -1,0 +1,17 @@
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.git
+**/.codex
+**/.agents
+**/backup
+**/test-results
+**/playwright-report
+**/uploads
+server/public
+server/tests
+assets/tests
+**/preview-*.png
+**/preview-*.jpg
+**/debug.log
