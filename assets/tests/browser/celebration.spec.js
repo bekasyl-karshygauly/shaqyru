@@ -1,0 +1,40 @@
+import {test,expect} from '@playwright/test';
+test('story uploads, reorders, persists and reaches guest preview',async({page})=>{
+  await page.goto('/create?lang=ru#sec-anim');
+  await page.locator('#story-upload').setInputFiles(['public/covers/wedding.jpg','public/covers/wedding.jpg']);
+  await expect(page.locator('.story-editor-item')).toHaveCount(2);
+  await page.getByRole('textbox',{name:'Подпись 1',exact:true}).fill('Первое знакомство');
+  await page.getByRole('button',{name:'Переместить фото 1 позже',exact:true}).click();
+  await page.reload();
+  await expect(page.getByRole('textbox',{name:'Подпись 2',exact:true})).toHaveValue('Первое знакомство');
+  await page.evaluate(()=>{sessionStorage.setItem('shq-preview:11111111-1111-4111-8111-111111111111',localStorage.getItem('shq'))});
+  await page.goto('/preview#11111111-1111-4111-8111-111111111111');
+  await expect(page.locator('.photo-story img')).toBeVisible();
+  await page.getByRole('button',{name:'Следующее фото',exact:true}).click();
+  await expect(page.locator('.photo-story figcaption')).toHaveText('Первое знакомство');
+});
+test('scene selection survives reload and reduced motion stops the preview',async({page})=>{
+  await page.goto('/create?lang=ru#sec-anim');
+  await page.locator('.scene-choices [data-scene="garden"]').click();
+  await page.reload();
+  await expect(page.locator('.scene-choices [data-scene="garden"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.scene-preview .living-scene i')).toHaveCount(18);
+  await page.getByRole('button',{name:'Спокойный',exact:true}).click();
+  await expect(page.locator('.scene-preview .living-scene i')).toHaveCount(10);
+  await page.reload();
+  await expect(page.locator('#sceneSpeed')).toHaveValue('slow');
+  await expect(page.locator('#sceneDensity')).toHaveValue('low');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await expect(page.locator('.scene-preview .living-scene')).toHaveClass(/is-paused/);
+});
+test('guest scene can pause and RSVP errors remain visible until a successful retry',async({page})=>{
+  let fail=true;
+  await page.route('**/api/i/12345678',r=>r.fulfill({json:{data:{names:'Арман и Айгерім',lang:'ru',scene:'balloons',sceneDensity:'high'},preview:false}}));
+  await page.route('**/api/rsvp/12345678',r=>r.fulfill(fail?{status:503,json:{error:'Попробуйте позже'}}:{json:{ok:true}}));
+  await page.goto('/i/12345678');await page.locator('.intro-skip').click();
+  await expect(page.locator('body>.living-scene i')).toHaveCount(28);
+  await page.locator('.scene-toggle').click();await expect(page.locator('body>.living-scene')).toHaveClass(/is-paused/);
+  await page.getByRole('link',{name:'Ответить',exact:true}).click();await expect(page.locator('#guest-rsvp')).toBeFocused();
+  await expect(page.getByRole('button',{name:'Уменьшить количество гостей'})).toBeDisabled();
+  await page.getByLabel('Ваше имя',{exact:true}).fill('Гость');await page.locator('.rsvp-yes').click();await expect(page.locator('.rsvp-error')).toHaveText('Попробуйте позже');fail=false;await page.locator('.rsvp-yes').click();await expect(page.locator('.rsvp-success')).toBeVisible();
+});
