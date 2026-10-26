@@ -40,6 +40,9 @@
 .intro-tabs a:hover{border-color:var(--ac);background:var(--soft)}
 .intro-tabs a.on{border-color:var(--ac);background:var(--soft);color:var(--ac);box-shadow:inset 0 0 0 1px var(--ac)}
 .intro-tab-panel{min-width:0}
+.design-studio .step-pill,.intro-tabs a{transition:background-color .24s ease,border-color .24s ease,color .24s ease,box-shadow .24s ease}
+.design-studio .step-pill span{transition:background-color .24s ease,color .24s ease}
+[data-tab-entering]{will-change:opacity,transform}
 @media(max-width:1100px){.design-studio .step-pill{gap:5px;font-size:10px}.design-studio .step-pill span{display:none}}
 @media(max-width:860px){.design-studio .step-nav{grid-template-columns:repeat(4,minmax(0,1fr))}.design-studio .step-pill{min-height:44px;font-size:11px}.design-studio .sec[role=tabpanel]{scroll-margin-top:160px}.design-studio .editor-navigation{padding-block:6px}.intro-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.intro-tabs a{padding:8px 6px}.editor-panel-navigation>span{order:3;width:100%}.editor-panel-navigation>.gh{flex:1;min-width:0}}
-@media(prefers-reduced-motion:reduce){.design-studio .step-pill,.intro-tabs a{transition:none}}
+@media(prefers-reduced-motion:reduce){.design-studio .step-pill,.design-studio .step-pill span,.intro-tabs a{transition:none}}
