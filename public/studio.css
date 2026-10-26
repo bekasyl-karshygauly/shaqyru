@@ -19,3 +19,27 @@
 .design-studio .step-pill,.design-studio .sec-badge-hint,.design-studio .top-pill,.design-studio .save-status,.design-studio .mob-tab,.design-studio .anb,.design-studio .fxb,.design-studio .cvb,.design-studio .pal-btn,.design-studio .sch-preset-btn{font-family:Montserrat,system-ui,sans-serif}
 /* Keep all thumbnail effects, but spend their paint/compositor budget only nearby. */
 #gal .g[data-motion-offscreen] *,#gal .g[data-motion-offscreen] *::before,#gal .g[data-motion-offscreen] *::after{animation-play-state:paused!important}
+
+/* Editor sections are peer panels, not a long sequence of open forms. */
+.design-studio .editor-navigation{position:sticky;top:0;z-index:12;background:var(--bg);padding:8px 0;scroll-margin-top:0;border-bottom:1px solid var(--ln)}
+.design-studio .step-nav{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px;overflow:visible;border:0}
+.design-studio .step-pill{display:flex;align-items:center;justify-content:center;gap:7px;min-height:48px;padding:10px 7px;text-align:center;text-decoration:none;border:1px solid transparent;border-radius:9px;white-space:normal;line-height:1.35;cursor:pointer}
+.design-studio .step-pill:hover{background:var(--soft);color:var(--ac)}
+.design-studio .step-pill.on{background:var(--soft);border:1px solid var(--ac);color:var(--ac)}
+.design-studio .step-pill span{flex-shrink:0;width:23px;height:23px;display:grid;place-items:center;font-size:10px}
+.design-studio .step-pill:focus-visible,.design-studio .intro-tabs a:focus-visible{outline:3px solid #287da5;outline-offset:2px}
+.design-studio .editor-navigation .mob-tabs{position:static;margin:8px 0 0;box-shadow:none}
+.design-studio .sec[role=tabpanel]{scroll-margin-top:90px;animation:none}
+.editor-panel-navigation{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:0 0 20px}
+.editor-panel-navigation[hidden],.intro-tab-panel[hidden]{display:none!important}
+.editor-panel-navigation>span{font-size:10px;color:var(--mu);text-align:center}
+.editor-panel-navigation .gh{padding:10px 14px;cursor:pointer}
+.design-studio .gh:disabled{opacity:.45;cursor:default}
+.intro-tabs{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:16px;margin-bottom:18px;border-bottom:1px solid var(--ln)}
+.intro-tabs a{display:flex;align-items:center;justify-content:center;min-height:44px;padding:9px 12px;border:1px solid var(--ln);border-radius:9px;background:var(--bg);color:var(--ink);font-size:11px;line-height:1.4;text-align:center;text-decoration:none;cursor:pointer}
+.intro-tabs a:hover{border-color:var(--ac);background:var(--soft)}
+.intro-tabs a.on{border-color:var(--ac);background:var(--soft);color:var(--ac);box-shadow:inset 0 0 0 1px var(--ac)}
+.intro-tab-panel{min-width:0}
+@media(max-width:1100px){.design-studio .step-pill{gap:5px;font-size:10px}.design-studio .step-pill span{display:none}}
+@media(max-width:860px){.design-studio .step-nav{grid-template-columns:repeat(4,minmax(0,1fr))}.design-studio .step-pill{min-height:44px;font-size:11px}.design-studio .sec[role=tabpanel]{scroll-margin-top:160px}.design-studio .editor-navigation{padding-block:6px}.intro-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.intro-tabs a{padding:8px 6px}.editor-panel-navigation>span{order:3;width:100%}.editor-panel-navigation>.gh{flex:1;min-width:0}}
+@media(prefers-reduced-motion:reduce){.design-studio .step-pill,.intro-tabs a{transition:none}}

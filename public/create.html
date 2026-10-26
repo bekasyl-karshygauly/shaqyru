@@ -12,19 +12,20 @@
 <div id="app" class="w" inert aria-busy="true">
 <header class="app-header"><a class="brand" href="/" aria-label="Шақыру — главная"><span class="brand-flower" aria-hidden="true">✽</span>Шақыру</a><nav class="editor-site-nav" aria-label="Навигация"><a href="/">Главная</a><a href="/library.html" id="library-link">Мои приглашения</a><a href="/create" aria-current="page">Создать приглашение</a></nav><div class="header-right"><div class="lang-pills" id="top-lang"><button class="top-pill" data-l="kz" type="button">ҚАЗ</button><button class="top-pill" data-l="ru" type="button">РУС</button></div></div></header>
 <section class="editor-intro"><div><a class="editor-breadcrumb" href="/">← На главную</a><h1 data-copy="editorTitle">Здесь начинается ваш праздник</h1><p data-copy="editorIntro">Выберите дизайн, добавьте детали — и приглашение оживёт.</p></div><span class="save-status" id="save-status" role="status">Черновик в браузере</span></section>
-<section id="editor-history" aria-label="История / Тарих"></section><nav class="step-nav" id="step-nav">
+<section id="editor-history" aria-label="История / Тарих"></section><div class="editor-navigation" id="editor-navigation"><nav class="step-nav" id="step-nav">
 <a class="step-pill on" href="#sec-ev"><span>1</span>Повод</a>
 <a class="step-pill" href="#sec-dsg"><span>2</span>Дизайн</a>
 <a class="step-pill" href="#sec-data"><span>3</span>Данные</a>
-<a class="step-pill" href="#sec-style"><span>4</span>Стиль</a>
-<a class="step-pill" href="#sec-anim"><span>5</span>Интро</a>
-<a class="step-pill" href="#sec-mus"><span>6</span>🎵 Музыка</a>
-<a class="step-pill" href="#sec-details"><span>♥</span>Гостям</a>
-<a class="step-pill" href="#sec-prog"><span>7</span>Программа</a>
+<a class="step-pill" href="#sec-style"><span>4</span>Фото и стиль</a>
+<a class="step-pill" href="#sec-anim"><span>5</span>Анимация</a>
+<a class="step-pill" href="#sec-mus"><span>6</span>Музыка</a>
+<a class="step-pill" href="#sec-details"><span>7</span>Гостям</a>
+<a class="step-pill" href="#sec-prog"><span>8</span>Программа</a>
 </nav>
 <div class="mob-tabs" id="mob-tabs">
 <button class="mob-tab on" id="mt-edit" type="button">✏️ Редактор</button>
 <button class="mob-tab" id="mt-prev" type="button">👁️ Предпросмотр</button>
+</div>
 </div>
 <div id="edit-conflict" class="conflict-banner" role="alert" hidden><p>Приглашение изменилось в другой вкладке. Ваши правки сохранены в браузере.</p><div class="row"><button type="button" class="gh" id="download-draft">Скачать мой черновик</button><button type="button" class="gh" id="reload-server">Загрузить актуальную версию</button></div></div>
 <div class="lay"><div class="form-col" id="form-col">
@@ -60,9 +61,13 @@
 <div class="full"><label>Обложка (фото-фон)</label><div class="covg" id="covg"></div></div>
 <div class="full row"><button class="gh" id="rc" type="button">Сбросить цвета</button><button class="gh" id="rp" type="button">Убрать фото</button></div></div></div>
 <div class="sec" id="sec-anim"><div class="sec-hdr"><h3>5. Анимация открытия билета</h3><span class="sec-badge-hint">Интро для гостей</span></div>
-<div id="style-presets"></div><div id="intro-photo-editor"></div><div id="scene-editor"></div><div id="story-editor"></div>
-<div class="full"><label>Стиль открытия (интро для гостей при клике на печать)</label><div id="video-export"></div><div id="animation-tools"></div><div id="anim-filter" class="anim-filter" aria-label="Категории анимаций"></div><p id="animation-count" class="animation-count"></p><div class="animg" id="animg"></div></div>
+<nav class="intro-tabs" id="intro-tabs" aria-label="Настройки анимации"><a href="#intro-opening" class="on">Открытие</a><a href="#intro-photo">Фото заставки</a><a href="#intro-atmosphere">Атмосфера</a><a href="#intro-story">Фотоистория</a><a href="#intro-video">Видео</a></nav>
+<div class="intro-tab-panel" id="intro-opening"><div id="style-presets"></div>
+<div class="full"><label>Стиль открытия (интро для гостей при клике на печать)</label><div id="animation-tools"></div><div id="anim-filter" class="anim-filter" aria-label="Категории анимаций"></div><p id="animation-count" class="animation-count"></p><div class="animg" id="animg"></div></div></div>
+<div class="intro-tab-panel" id="intro-photo"><div id="intro-photo-editor"></div></div>
+<div class="intro-tab-panel" id="intro-atmosphere"><div id="scene-editor"></div>
 <div class="full" style="margin-top:12px"><label>Эффект праздничных частиц</label><div class="fxg" id="fxg"></div></div>
+</div><div class="intro-tab-panel" id="intro-story"><div id="story-editor"></div></div><div class="intro-tab-panel" id="intro-video"><div id="video-export"></div></div>
 <div class="row" style="margin-top:12px"><button class="gh" id="tani" type="button" style="width:100%">▶ Протестировать анимацию открытия</button></div>
 </div>
 <div class="sec" id="sec-mus">
@@ -363,18 +368,6 @@ if(ctcReplace&&fileInp){
   ctcReplace.onclick=()=>fileInp.click();
 }
 
-document.querySelectorAll(".step-pill").forEach(p=>{
-  p.onclick=e=>{
-    e.preventDefault();
-    const target=$(p.getAttribute("href"));
-    if(target){
-      target.scrollIntoView({behavior:"smooth",block:"start"});
-      document.querySelectorAll(".step-pill").forEach(x=>x.classList.remove("on"));
-      p.classList.add("on");
-    }
-  };
-});
-
 $("#pshape").onchange=e=>{S.ps=e.target.value;pv(1);showSaveIndicator()};$("#play").onchange=e=>{S.pl=e.target.value;pv(1);showSaveIndicator()};$("#pfilt").onchange=e=>{S.pf=e.target.value;pv(1);showSaveIndicator()};
 $("#rc").onclick=()=>{S.c={};all();showSaveIndicator()};$("#rp").onclick=()=>{S.photo="";S.cover="none";covGal();pv();showSaveIndicator()};
 $("#covg").onclick=e=>{const b=e.target.closest(".cvb");if(!b)return;S.cover=b.dataset.cv;covGal();pv(1);showSaveIndicator()};
@@ -485,7 +478,7 @@ presetsEditor=mountPresets($('#style-presets'),{state:()=>S,onChange:()=>{all();
 storyEditor=mountStoryEditor($('#story-editor'),{state:()=>S,onChange:showSaveIndicator});
 sceneEditor=mountSceneEditor($('#scene-editor'),{state:()=>S,onChange:showSaveIndicator});
 introPhotoEditor=mountIntroPhotoEditor($('#intro-photo-editor'),{state:()=>S,onChange:()=>{sv();showSaveIndicator()}});
-all();if(!S.id)sv();mountEditorAssistant({state:()=>S,applyPhoto:photo=>{S.photo=photo;introPhotoEditor.update();pv(1);showSaveIndicator()}});mountDesignStudio({state:()=>S});document.querySelector("#app").inert=false;document.querySelector("#app").removeAttribute("aria-busy");
+all();if(!S.id)sv();const studio=mountDesignStudio({state:()=>S});mountEditorAssistant({state:()=>S,navigation:studio.navigation,applyPhoto:photo=>{S.photo=photo;introPhotoEditor.update();pv(1);showSaveIndicator()}});document.querySelector("#app").inert=false;document.querySelector("#app").removeAttribute("aria-busy");
 editHistory=mountEditHistory($('#editor-history'),{key:libraryKey,state:()=>S,apply:data=>{Object.assign(S,data);all();showSaveIndicator()}});
 const occasion=new URLSearchParams(location.search).get('occasion');if(occasion!==null&&/^\d+$/.test(occasion)&&Number(occasion)<EV.length){if(!hadDraft)$("#ev").querySelector(`[data-i="${Number(occasion)}"]`)?.click();else setSaveStatus(S.lang==='kz'?'Сақталған нобайыңыз ашылды':'Открыт ваш сохранённый черновик');const cleanUrl=new URL(location.href);cleanUrl.searchParams.delete('occasion');history.replaceState(null,'',cleanUrl.pathname+cleanUrl.search+cleanUrl.hash)}
 }

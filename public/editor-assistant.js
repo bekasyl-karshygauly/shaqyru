@@ -16,24 +16,28 @@ export function checkInvitation(s,{suggestions=false,now=new Date()}={}){
   return issues;
 }
 
-export function mountEditorAssistant({state,applyPhoto}){
+export function mountEditorAssistant({state,applyPhoto,navigation}){
   const $=s=>document.querySelector(s),t=(ru,kz)=>state().lang==='kz'?kz:ru;
   const panel=document.createElement('section');panel.className='assistant-panel';panel.innerHTML='<div class="row"><button type="button" class="gh" id="wizard-toggle"></button><button type="button" class="gh" id="check-invitation"></button></div><div id="wizard-controls" hidden><p id="wizard-progress" role="status"></p><div class="row"><button type="button" class="gh" id="wizard-back"></button><button type="button" class="go" id="wizard-next"></button></div></div><div id="invitation-check" role="status" hidden></div>';
-  $('#step-nav').before(panel);
-  const groups=[['sec-ev'],['sec-dsg'],['sec-data','sec-style','sec-anim','sec-mus','sec-details','sec-prog'],[]];
-  let enabled=false,step=0;
+  $('#editor-navigation').before(panel);
+  const sections=navigation.ids;
+  let enabled=false,step=0,rendering=false;
   function review(){const box=$('#invitation-check');box.hidden=false;box.replaceChildren();const issues=checkInvitation(state(),{suggestions:true}),heading=document.createElement('p');heading.textContent=issues.length?t('Перед отправкой проверьте:','Жіберер алдында тексеріңіз:'):t('Основные данные заполнены. Откройте предпросмотр и проверьте текст.','Негізгі деректер толтырылған. Алдын ала көріп, мәтінді тексеріңіз.');box.append(heading);
-    for(const issue of issues){const button=document.createElement('button');button.type='button';button.className='gh check-item';button.textContent=t(issue.ru,issue.kz);button.onclick=()=>{if(enabled){step=2;render()}$('#mt-edit').click();const field=$('#'+issue.field);field.scrollIntoView({block:'center'});field.focus()};box.append(button)}
+    for(const issue of issues){const button=document.createElement('button');button.type='button';button.className='gh check-item';button.textContent=t(issue.ru,issue.kz);button.onclick=()=>{const field=$('#'+issue.field);navigation.open(field);field.scrollIntoView({block:'center'});field.focus({preventScroll:true})};box.append(button)}
     const note=document.createElement('p');note.className='mu';note.textContent=t('Проверка не блокирует сохранение и предпросмотр. Доступ гостей откроется после публикации организатором.','Тексеру сақтау мен алдын ала көруге кедергі келтірмейді. Қонақтарға қолжетімділік ұйымдастырушы жариялағаннан кейін ашылады.');box.append(note);
   }
-  function render(){
-    $('#wizard-toggle').textContent=enabled?t('Показать все настройки','Барлық баптауларды көрсету'):t('Создать пошагово','Қадаммен жасау');$('#check-invitation').textContent=t('Проверить приглашение','Шақыруды тексеру');$('#wizard-controls').hidden=!enabled;
-    $('#wizard-back').textContent=t('Назад','Артқа');$('#wizard-back').disabled=step===0;$('#wizard-next').textContent=step===3?t('Вернуться к данным','Деректерге оралу'):t('Далее','Келесі');
-    $('#wizard-progress').textContent=t(`Шаг ${step+1} из 4: `,`4 қадамның ${step+1}-қадамы: `)+[t('Повод','Мереке'),t('Дизайн','Дизайн'),t('Данные и оформление','Деректер мен безендіру'),t('Проверка','Тексеру')][step];
-    for(const id of groups.flat())$('#'+id).hidden=enabled&&!groups[step].includes(id);
-    $('#step-nav').hidden=enabled;if(enabled&&step===3)review();else if(enabled)$('#invitation-check').hidden=true;
+  function render(navigate=true){
+    rendering=true;
+    $('#wizard-toggle').textContent=enabled?t('Перейти к вкладкам','Қойындыларға оралу'):t('Создать пошагово','Қадаммен жасау');$('#wizard-toggle').setAttribute('aria-pressed',String(enabled));$('#check-invitation').textContent=t('Проверить приглашение','Шақыруды тексеру');$('#wizard-controls').hidden=!enabled;
+    $('#wizard-back').textContent=t('Назад','Артқа');$('#wizard-back').disabled=step===0;$('#wizard-next').textContent=step===sections.length?t('Вернуться к данным','Деректерге оралу'):t('Далее','Келесі');
+    const names=[t('Повод','Мереке'),t('Дизайн','Дизайн'),t('Данные','Мәліметтер'),t('Фото и стиль','Фото және стиль'),t('Анимация','Анимация'),t('Музыка','Музыка'),t('Гостям','Қонақтарға'),t('Программа','Бағдарлама'),t('Проверка','Тексеру')];
+    $('#wizard-progress').textContent=t(`Шаг ${step+1} из ${names.length}: `,`${names.length} қадамның ${step+1}-қадамы: `)+names[step];
+    navigation.setGuided(enabled);if(enabled&&step<sections.length&&navigate)navigation.open(sections[step]);
+    if(enabled&&step===sections.length)review();else if(enabled)$('#invitation-check').hidden=true;
+    rendering=false;
   }
-  $('#wizard-toggle').onclick=()=>{enabled=!enabled;step=0;$('#mt-edit').click();render()};$('#wizard-back').onclick=()=>{step--;render()};$('#wizard-next').onclick=()=>{step=step===3?2:step+1;render();panel.scrollIntoView({block:'start'})};$('#check-invitation').onclick=review;
+  $('#wizard-toggle').onclick=()=>{enabled=!enabled;if(enabled)step=0;$('#mt-edit').click();render()};$('#wizard-back').onclick=()=>{step--;render()};$('#wizard-next').onclick=()=>{step=step===sections.length?2:step+1;render();panel.scrollIntoView({block:'start'})};$('#check-invitation').onclick=review;
+  document.addEventListener('shq:sectionchange',event=>{if(!enabled||rendering)return;step=sections.indexOf(event.detail.id);render(false)});
   document.addEventListener('shq:changed',()=>{if(!$('#invitation-check').hidden)review()});
   $('#form-col').addEventListener('input',()=>{if(!$('#invitation-check').hidden)review()});
   $('#app').addEventListener('click',e=>{if(e.target.closest('[data-l]'))queueMicrotask(()=>{render();if(!$('#invitation-check').hidden)review()})});
