@@ -1,16 +1,21 @@
 export const scenes=[['none','Без сцены','Сахнасыз'],['garden','Цветущий сад','Гүл бағы'],['stars','Звёздный свет','Жұлдыз жарығы'],['balloons','Воздушные шары','Әуе шарлары'],['ornament','Қазақ оюы','Қазақ оюы']];
 const symbols={garden:['✿','❀','❧'],stars:['✦','✧','⋆'],balloons:[''],ornament:['❦','❧']};
-export function mountScene(host,state,{controls=true}={}){
-  let s=state,paused=false;
+export function mountScene(host,state,{controls=true,scrollDriven=false}={}){
+  let s=state,paused=false,offscreen=false,signature='',latestTime=0,appliedTime=-1,tracks=[];
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
   const layer=document.createElement('div');layer.className='living-scene';layer.setAttribute('aria-hidden','true');host.append(layer);
   const button=document.createElement('button');button.type='button';button.className='scene-toggle';
   if(controls)host.append(button);
-  function sync(){const stop=paused||reduced.matches||document.hidden;layer.classList.toggle('is-paused',stop);button.textContent=s.lang==='kz'?(stop?'Қозғалысты қосу':'Қозғалысты тоқтату'):(stop?'Включить движение':'Остановить движение');button.disabled=reduced.matches;button.setAttribute('aria-pressed',String(!stop))}
-  function update(next){s=next;layer.dataset.scene=s.scene||'none';layer.replaceChildren();const glyphs=symbols[s.scene];button.hidden=!glyphs;
-    if(glyphs){const count=s.scene==='ornament'?({low:4,medium:8,high:12}[s.sceneDensity]||8):({low:10,medium:18,high:28}[s.sceneDensity]||18);for(let i=0;i<count;i++){const el=document.createElement('i');el.textContent=glyphs[i%glyphs.length];if(s.scene==='ornament')el.innerHTML='<svg viewBox="0 0 80 80" width="70" height="70" fill="none" stroke="currentColor" stroke-width="3"><path d="M40 68V35C40 10 8 8 8 28c0 15 23 15 23 2 0-8-12-8-12 0M40 68V35C40 10 72 8 72 28c0 15-23 15-23 2 0-8 12-8 12 0M40 48 23 65l17 12 17-12Z"/></svg>';el.style.cssText=`--x:${(i*37+7)%100}%;--y:${(i*23+9)%100}%;--delay:-${i*1.73}s;--duration:${(s.sceneSpeed==='slow'?30:s.sceneSpeed==='fast'?12:21)+i%7}s;--size:${18+i%5*7}px;--tone:${['#e894a7','#83b6a0','#e8ba62','#8abbe0'][i%4]}`;layer.append(el)}}sync()}
+  layer.classList.toggle('is-scroll-driven',scrollDriven);
+  function apply(){if(!scrollDriven||paused||reduced.matches||document.hidden||appliedTime===latestTime)return;for(const animation of tracks)animation.currentTime=latestTime;appliedTime=latestTime}
+  function sync(){const stop=paused||reduced.matches||document.hidden||offscreen;if(scrollDriven&&reduced.matches){tracks=[];appliedTime=-1}else if(scrollDriven&&!tracks.length&&layer.childElementCount){tracks=layer.getAnimations({subtree:true});for(const animation of tracks)animation.pause();appliedTime=-1}layer.classList.toggle('is-paused',stop);button.textContent=s.lang==='kz'?(stop?'Қозғалысты қосу':'Қозғалысты тоқтату'):(stop?'Включить движение':'Остановить движение');button.disabled=reduced.matches;button.setAttribute('aria-pressed',String(!stop));if(!stop)apply()}
+  function update(next){s=next;const key=[s.scene,s.sceneDensity,s.sceneSpeed].join(':');if(key===signature){sync();return}signature=key;tracks.forEach(a=>a.cancel());tracks=[];appliedTime=-1;layer.dataset.scene=s.scene||'none';layer.replaceChildren();const glyphs=symbols[s.scene];button.hidden=!glyphs;
+    if(glyphs){const count=s.scene==='ornament'?({low:4,medium:8,high:12}[s.sceneDensity]||8):({low:10,medium:18,high:28}[s.sceneDensity]||18);for(let i=0;i<count;i++){const el=document.createElement('i');el.textContent=glyphs[i%glyphs.length];if(s.scene==='ornament')el.innerHTML='<svg viewBox="0 0 80 80" width="70" height="70" fill="none" stroke="currentColor" stroke-width="3"><path d="M40 68V35C40 10 8 8 8 28c0 15 23 15 23 2 0-8-12-8-12 0M40 68V35C40 10 72 8 72 28c0 15-23 15-23 2 0-8 12-8 12 0M40 48 23 65l17 12 17-12Z"/></svg>';el.style.cssText=`--x:${(i*37+7)%100}%;--y:${(i*23+9)%100}%;--delay:-${i*1.73}s;--duration:${(s.sceneSpeed==='slow'?30:s.sceneSpeed==='fast'?12:21)+i%7}s;--size:${18+i%5*7}px;--tone:${['#e894a7','#83b6a0','#e8ba62','#8abbe0'][i%4]}`;layer.append(el)}}
+    if(scrollDriven){tracks=layer.getAnimations({subtree:true});for(const animation of tracks)animation.pause()}
+    sync()}
+  const visibility=!scrollDriven&&!controls&&typeof IntersectionObserver!=='undefined'?new IntersectionObserver(entries=>{offscreen=!entries[0].isIntersecting;sync()},{rootMargin:'120px'}):null;visibility?.observe(host);
   button.onclick=()=>{paused=!paused;sync()};reduced.addEventListener('change',sync);document.addEventListener('visibilitychange',sync);update(s);
-  return {update,destroy(){layer.remove();button.remove();reduced.removeEventListener('change',sync);document.removeEventListener('visibilitychange',sync)}};
+  return {update,seek(time){const next=Number(time);if(!Number.isFinite(next))return;latestTime=Math.max(0,next);apply()},destroy(){visibility?.disconnect();tracks.forEach(a=>a.cancel());tracks=[];layer.remove();button.remove();reduced.removeEventListener('change',sync);document.removeEventListener('visibilitychange',sync)}};
 }
 export function mountSceneEditor(host,{state,onChange}){
   host.innerHTML='<h4></h4><p class="mu"></p><div class="scene-choices"></div><div class="scene-preview"></div><div class="scene-settings"></div>';

@@ -1,24 +1,33 @@
 /* Materials are a function of the invitation's scroll clocks. There is no
    autonomous time uniform: a held or reversed scroll has the same lighting. */
 export const invitationVertexShader=/* glsl */`
+attribute vec4 aRect;
+attribute vec2 aCssSize;
+attribute vec2 aTilt;
+attribute vec2 aMaterial;
 varying vec2 vUv;
+varying vec2 vCssSize;
+varying vec2 vTilt;
+varying vec2 vMaterial;
 void main(){
-  vUv=uv;
-  gl_Position=vec4(position.xy,0.0,1.0);
+  vUv=uv;vCssSize=aCssSize;vTilt=aTilt;vMaterial=aMaterial;
+  gl_Position=vec4((aRect.xy+uv*aRect.zw)*2.0-1.0,0.0,1.0);
 }`;
 
 export const invitationFragmentShader=/* glsl */`
 precision highp float;
 varying vec2 vUv;
-uniform vec2 uResolution;
-uniform vec2 uCssSize;
-uniform vec2 uTilt;
+varying vec2 vCssSize;
+varying vec2 vTilt;
+varying vec2 vMaterial;
+#define uCssSize vCssSize
+#define uTilt vTilt
+#define uSeed vMaterial.x
+#define uMode vMaterial.y
 uniform vec3 uAccent;
 uniform float uOpening;
 uniform float uCard;
 uniform float uDepth;
-uniform float uSeed;
-uniform float uMode;
 
 float hash(vec2 p){
   p=fract(p*vec2(123.34,456.21));

@@ -1,6 +1,6 @@
 html[data-page-transition]::before,html[data-page-transition]::after{position:fixed;pointer-events:none;z-index:100000;content:""}
-html[data-page-transition]::before{inset:0;background:#fffdf8}
-html[data-page-transition]::after{content:"✽";left:calc(50% - 32px);top:calc(50% - 32px);width:64px;height:64px;text-align:center;font:64px/1 Georgia,serif;color:#fa604b}
+html[data-page-transition]::before{inset:0;background:#fffdf8;will-change:opacity}
+html[data-page-transition]::after{content:"✽";left:calc(50% - 32px);top:calc(50% - 32px);width:64px;height:64px;text-align:center;font:64px/1 Georgia,serif;color:#fa604b;will-change:transform,opacity}
 html[data-page-transition="leave"]::before{animation:editor-cover-in 190ms ease-out both}
 html[data-page-transition="leave"]::after{animation:editor-flower-in 190ms ease-out both}
 html[data-page-transition="reveal"]::before{animation:editor-cover-out 440ms ease-in-out both}

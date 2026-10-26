@@ -411,8 +411,11 @@ function openPreview(full=true){
   stopPreviewAudio();sv();
   if(!full){setMobTab("prev");return}
   const nonce=crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==="x"?r:(r&3|8)).toString(16)});
-  try{sessionStorage.setItem("shq-preview:"+nonce,JSON.stringify(cdata()))}catch(e){setMobTab("prev");setSaveStatus("Открыт встроенный предпросмотр",true);return}
-  const preview=window.open("/preview#"+nonce,"_blank");if(!preview){setMobTab("prev");setSaveStatus("Открыт встроенный предпросмотр")}
+  const snapshot=cdata(),snapshots=window.__shqOrderPreviews??=new Map();snapshots.set(nonce,snapshot);while(snapshots.size>4)snapshots.delete(snapshots.keys().next().value);
+  const embedded=()=>{snapshots.delete(nonce);setMobTab("prev");livePreview?.open();setSaveStatus("Открыт встроенный предпросмотр")};
+  let payload;try{payload=JSON.stringify(snapshot);sessionStorage.setItem("shq-preview:"+nonce,payload)}catch(e){embedded();return}
+  const preview=window.open("/preview#"+nonce,"_blank");
+  if(!preview)embedded();else{try{preview.sessionStorage.setItem("shq-preview:"+nonce,payload)}catch{}}
 }
 orderPanel=mountOrderDialog({state:()=>S,price:()=>PR[DG[S.dsg][2]],designName:()=>DG[S.dsg]?.[0]||'',save:saveSrv,request:api,version:()=>serverVersion,onState:j=>{orderState=j.order||null;if(j.paid!==undefined)S.paid=j.paid?1:0;if(j.version&&!S._dirty)serverVersion=j.version;sv();pv();$("#payment-status").textContent=S.paid?(S.lang==="kz"?"Шақыру жарияланды. Қонақтар сілтемесі дайын.":"Приглашение опубликовано. Гостевая ссылка готова."):orderState?(S.lang==="kz"?"Өтінім келісілуде.":"Заявка на согласовании."):""}});
 mountDesignFavorites({state:()=>S,designs:DG});

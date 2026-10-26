@@ -2,6 +2,25 @@
    GSAP owns their clocks, never the same elements' transform/opacity. */
 import {mountInvitationWebGL} from './invitation-webgl.js';
 const clamp=n=>Math.max(0,Math.min(1,n));
+let scrollEnginesSleeping=false;
+function sleepIdleScrollEngines(gsap,ST){
+  if(ST.getAll().length)return;
+  if(!scrollEnginesSleeping){ST.disable(false);scrollEnginesSleeping=true}
+  gsap.ticker.sleep();
+}
+// Respect the preference as soon as this module is loaded, before the guest
+// API finishes and visible HTML is mounted. The already queued global RAF can
+// finish once without leaving background work on the static invitation.
+if(typeof window!=='undefined'&&window.gsap&&window.ScrollTrigger&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)sleepIdleScrollEngines(window.gsap,window.ScrollTrigger);
+// `auto` is supported by older WebKit as well. Temporarily overriding the
+// site's smooth anchor scrolling makes replay/skip an actual synchronous seek.
+function scrollImmediately(top){
+  const style=document.documentElement.style;
+  const value=style.getPropertyValue('scroll-behavior'),priority=style.getPropertyPriority('scroll-behavior');
+  style.setProperty('scroll-behavior','auto','important');
+  try{window.scrollTo({top,behavior:'auto'})}
+  finally{if(value)style.setProperty('scroll-behavior',value,priority);else style.removeProperty('scroll-behavior')}
+}
 // ScrollTrigger suppresses callbacks while refreshing. Re-render numeric clocks
 // and explicitly seek their WAAPI tracks after restoring the saved progress.
 function refreshTracks(trigger,render){
@@ -14,30 +33,60 @@ function seekable(animations){
   const tracks=animations.map(animation=>{
     const timing=animation.effect.getTiming();
     animation.pause();animation.effect.updateTiming({fill:'both'});animation.currentTime=0;
-    return {animation,timing};
+    const end=Number(animation.effect.getComputedTiming().endTime);
+    return {animation,timing,end:Number.isFinite(end)?Math.max(0,end):Infinity,time:0};
   });
   return {
     duration:Math.max(1,...tracks.filter(t=>t.timing.iterations!==Infinity).map(t=>Number(t.timing.delay)+Number(t.timing.duration)*t.timing.iterations)),
-    seek(time){for(const {animation} of tracks)animation.currentTime=time},
+    seek(time){for(const track of tracks){
+      // Finished entrances keep their last frame without invalidating text and
+      // decorations on every later scroll tick. Infinite tracks stay reversible.
+      const next=Math.min(Math.max(0,time),track.end);
+      if(next!==track.time){track.animation.currentTime=next;track.time=next}
+    }},
     destroy(){for(const {animation} of tracks)animation.cancel()}
   };
 }
 
-export function mountInvitationScroll({host,card,state,opening=true,onActivate=()=>{}}){
+export function mountInvitationScroll({host,card,state,opening=true,onActivate=()=>{},onProgress=()=>{}}){
   const gsap=window.gsap,ST=window.ScrollTrigger;
   if(!gsap||!ST){
     if(opening)showIntro(state,()=>playIn(card,state));
     return {replay(){showIntro(state,onActivate,{manual:true})},destroy(){}};
   }
-  gsap.registerPlugin(ST);ST.config({ignoreMobileResize:true});
+  // The plugin already ignores mobile toolbar-only resize by default. Avoid a
+  // redundant config() call: this bundled version clears its stored sync timer
+  // handle when syncInterval is omitted, preventing disable() from stopping it.
+  gsap.registerPlugin(ST);
+  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+  const idleWhenReduced=()=>{
+    // This standalone invitation is the GSAP owner. Reverting its media
+    // context removes every trigger, but ScrollTrigger's global iOS RAF fix
+    // and GSAP's ticker otherwise continue even on a static reduced page.
+    // Never suspend the engine while another scroll owner still has triggers.
+    if(!reduced.matches||ST.getAll().length)return;
+    sleepIdleScrollEngines(gsap,ST);
+  };
+  // ScrollTrigger refreshes in this event too; sleep after that final work,
+  // including when the preference is changed while the page is already open.
+  gsap.addEventListener('matchMedia',idleWhenReduced);
   let wantOpening=opening,active=null,destroyed=false;
   const media=gsap.matchMedia();
   function build(){
     if(destroyed)return;
     media.add('(prefers-reduced-motion: no-preference)',()=>{
+      if(scrollEnginesSleeping){
+        ST.enable();scrollEnginesSleeping=false;gsap.ticker.wake();
+        // enable() installs its matchMedia refresh listener again. Keep our
+        // idle check last so a later preference change cannot wake the ticker.
+        gsap.removeEventListener('matchMedia',idleWhenReduced);gsap.addEventListener('matchMedia',idleWhenReduced);
+      }
       const animations=[],cleanups=[],wrappers=[];
-      let root=null,runway=null,pin=null,openingTrigger=null,refreshFrame=0,alive=true,materials=null;
+      let root=null,runway=null,pin=null,openingTrigger=null,refreshFrame=0,refreshWanted=false,alive=true,materials=null;
+      let seal=null,motionSwitch=null,flap=null,rootHidden=null,flapLayer=null,rootProgress='';
       const originalClasses=card.className;
+      const html=document.documentElement,ownsNativeClass=!html.classList.contains('invitation-scroll-native');
+      html.classList.add('invitation-scroll-native');
       host.classList.add('scroll-motion');
       // Float and entrance use different nodes; shimmer keeps its original property.
       for(const ornament of card.querySelectorAll('.inv.an .or')){
@@ -64,11 +113,11 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
           }
           void root.offsetWidth;scene.start();void root.offsetWidth;
           rootTracks=seekable([...root.getAnimations({subtree:true})]);animations.push(rootTracks);
-          const seal=root.querySelector('.seal');seal.disabled=false;
+          seal=root.querySelector('.seal');seal.disabled=false;
+          motionSwitch=root.querySelector('.scene-motion');flap=root.querySelector('.efl');
           const advance=()=>{onActivate();window.scrollTo({top:openingTrigger?.end||0,behavior:'smooth'})};
-          const skip=()=>{window.scrollTo({top:openingTrigger?.end||0,behavior:'instant'});ST.update();host.focus({preventScroll:true})};
+          const skip=()=>{scrollImmediately(openingTrigger?.end||0);ST.update();host.focus({preventScroll:true})};
           seal.onclick=advance;root.querySelector('.intro-skip').onclick=skip;
-          const motionSwitch=root.querySelector('.scene-motion');
           if(motionSwitch)motionSwitch.onchange=()=>{if(!motionSwitch.checked)skip()};
           const escape=e=>{if(e.key==='Escape'&&!root.inert){e.preventDefault();skip()}};
           document.addEventListener('keydown',escape);cleanups.push(()=>document.removeEventListener('keydown',escape));
@@ -81,22 +130,34 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       const ambientTracks=seekable(cardAnimations.filter(a=>a.effect.getTiming().iterations===Infinity));
       animations.push(cardTracks,ambientTracks);
       const clock={opening:0,card:0},ambientClock={time:0};
-      const syncMaterials=()=>materials?.update({opening:rootTracks?clamp(clock.opening/rootTracks.duration):1,card:clamp(clock.card/cardTracks.duration),depth:clamp(ambientClock.time/30000)});
+      let ambientDuration=1,lastProgress=null;
+      const syncMaterials=()=>{
+        const value={opening:rootTracks?clamp(clock.opening/rootTracks.duration):1,card:clamp(clock.card/cardTracks.duration),depth:clamp(ambientClock.time/ambientDuration)};
+        if(lastProgress&&value.opening===lastProgress.opening&&value.card===lastProgress.card&&value.depth===lastProgress.depth&&ambientClock.time===lastProgress.ambientTime)return;
+        lastProgress={...value,ambientTime:ambientClock.time};
+        materials?.update(value);onProgress(lastProgress);
+      };
       const sync=()=>{
         cardTracks.seek(clock.card);
         syncMaterials();
         if(!root)return;
         rootTracks.seek(clock.opening);
         const p=clamp(clock.opening/rootTracks.duration),hidden=p>=.999;
-        root.dataset.progress=p.toFixed(5);root.inert=hidden;host.inert=!hidden;
-        root.style.visibility=hidden?'hidden':'visible';root.setAttribute('aria-hidden',String(hidden));
-        const motionSwitch=root.querySelector('.scene-motion');if(motionSwitch&&!hidden)motionSwitch.checked=true;
-        const flap=root.querySelector('.efl');if(flap)flap.style.zIndex=p<.35?'3':'0';
-        if(hidden&&root.contains(document.activeElement))host.focus({preventScroll:true});
+        const progress=p.toFixed(5);if(progress!==rootProgress){root.dataset.progress=progress;rootProgress=progress}
+        if(hidden!==rootHidden){
+          rootHidden=hidden;root.inert=hidden;host.inert=!hidden;
+          root.style.visibility=hidden?'hidden':'visible';root.setAttribute('aria-hidden',String(hidden));
+          if(motionSwitch&&!hidden)motionSwitch.checked=true;
+          if(hidden&&root.contains(document.activeElement))host.focus({preventScroll:true});
+        }
+        const layer=p<.35?'3':'0';if(flap&&layer!==flapLayer){flap.style.zIndex=layer;flapLayer=layer}
       };
       const distance=()=>Math.round(Math.max(540,document.documentElement.clientHeight*1.25));
       const sizeRunway=()=>{if(runway)runway.style.height=`${card.offsetHeight+distance()}px`};
       sizeRunway();
+      // A pixel of native scrolling advances decoration time by only 3ms. The
+      // previous fixed 30s clock raced through petals on short phone pages.
+      ambientDuration=Math.max(1,(host.getBoundingClientRect().bottom+window.scrollY-document.documentElement.clientHeight)*3);
       const tl=gsap.timeline({defaults:{ease:'none'},onUpdate:sync,scrollTrigger:{
         id:'invitation-opening',trigger:runway||card,start:wantOpening?0:'top 85%',
         end:()=>wantOpening?distance():'+=360',scrub:true,onRefreshInit:sizeRunway,onRefresh:self=>refreshTracks(self,sync)
@@ -108,9 +169,14 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       // freezing permanently at the end of the short opening range.
       const depth=gsap.timeline({defaults:{ease:'none'},scrollTrigger:{
         id:'invitation-depth',trigger:host,start:0,end:'bottom bottom',scrub:true,
-        onRefresh:self=>refreshTracks(self,()=>{ambientTracks.seek(ambientClock.time);syncMaterials()})
+        invalidateOnRefresh:true,
+        onRefresh:self=>{
+          const duration=Math.max(1,(self.end-self.start)*3);
+          if(duration!==ambientDuration){ambientDuration=duration;self.animation?.invalidate()}
+          refreshTracks(self,()=>{ambientTracks.seek(ambientClock.time);syncMaterials()});
+        }
       }});
-      depth.fromTo(ambientClock,{time:0},{time:30000,duration:1,onUpdate:()=>{ambientTracks.seek(ambientClock.time);syncMaterials()}},0);
+      depth.fromTo(ambientClock,{time:0},{time:()=>ambientDuration,duration:1,onUpdate:()=>{ambientTracks.seek(ambientClock.time);syncMaterials()}},0);
       // Individual translate composes with the existing transform keyframes.
       for(const [selector,pixels] of [['.bgp',18],['.rg,.or',-10]]){
         const nodes=card.querySelectorAll(selector);nodes.forEach(n=>n.classList.add('scroll-depth'));
@@ -139,10 +205,16 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       // The atmosphere layer moves; its original particle animations remain inside.
       const atmosphere=document.querySelector('.living-scene');
       if(atmosphere)depth.fromTo(atmosphere,{y:0},{y:-28,duration:1},0);
-      const refresh=()=>{cancelAnimationFrame(refreshFrame);refreshFrame=requestAnimationFrame(()=>ST.refresh())};
-      let dimensions='';
+      // Late image/font/layout changes must not remeasure and reset timelines
+      // in the middle of an inertial touch scroll. Coalesce them at scrollEnd.
+      const flushRefresh=()=>{refreshFrame=0;if(!alive||!refreshWanted||ST.isScrolling())return;refreshWanted=false;ST.refresh()};
+      const refresh=()=>{refreshWanted=true;if(!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
+      const scrollEnded=()=>{if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
+      ST.addEventListener('scrollEnd',scrollEnded);
+      let dimensions=null;
       const observer=new ResizeObserver(entries=>{
-        const rect=entries[0].contentRect,key=`${rect.width}:${rect.height}`;
+        const rect=entries[0].contentRect,key=`${Math.round(rect.width*2)}:${Math.round(rect.height*2)}`;
+        if(dimensions===null){dimensions=key;return}
         if(key!==dimensions){dimensions=key;refresh()}
       });observer.observe(host);
       host.addEventListener('load',refresh,true);window.addEventListener('afterprint',refresh);
@@ -150,11 +222,13 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       // A single shader owner receives the very same clocks as the existing
       // keyframes. It does not own a timeline, a ScrollTrigger or DOM transforms.
       materials=mountInvitationWebGL({host,card,state,openingRoot:root});
-      sync();ST.refresh();ST.update();
-      active={replay(){window.scrollTo({top:0,behavior:'instant'});ST.update();root?.querySelector('.seal').focus({preventScroll:true})}};
+      lastProgress=null;sync();ST.refresh();ST.update();
+      active={replay(){scrollImmediately(0);ST.update();seal?.focus({preventScroll:true})}};
       return ()=>{
         alive=false;active=null;materials?.destroy();observer.disconnect();cancelAnimationFrame(refreshFrame);host.inert=false;
         host.removeEventListener('load',refresh,true);window.removeEventListener('afterprint',refresh);
+        ST.removeEventListener('scrollEnd',scrollEnded);
+        if(ownsNativeClass)html.classList.remove('invitation-scroll-native');
         for(const cleanup of cleanups)cleanup();for(const a of animations)a.destroy();
         particles?.remove();disposeOpening();card.className=originalClasses;
         if(runway){runway.before(card);runway.remove()}
@@ -168,13 +242,13 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
   const suspend=()=>{media.revert();active=null};
   const resume=e=>{if(e.persisted)build()};
   window.addEventListener('pagehide',suspend);window.addEventListener('pageshow',resume);
-  build();
+  build();idleWhenReduced();
   return {
     replay(){
       if(matchMedia('(prefers-reduced-motion: reduce)').matches){showIntro(state,onActivate,{manual:true});return}
       if(!wantOpening){media.revert();wantOpening=true;build()}
       active?.replay();
     },
-    destroy(){destroyed=true;suspend();window.removeEventListener('pagehide',suspend);window.removeEventListener('pageshow',resume)}
+    destroy(){destroyed=true;suspend();gsap.removeEventListener('matchMedia',idleWhenReduced);window.removeEventListener('pagehide',suspend);window.removeEventListener('pageshow',resume)}
   };
 }

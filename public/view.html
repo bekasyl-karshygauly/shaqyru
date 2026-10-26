@@ -171,6 +171,7 @@ function hexAlpha(h,a){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5)
       if(!/^[a-f0-9-]{36}$/.test(nonce))throw new Error("Предпросмотр недоступен. Откройте его из редактора.");
       let snapshot;
       if(q.get('embedded')==='1'&&window.parent!==window){try{snapshot=window.parent.__shqOrderPreviews?.get(nonce)}catch{}}
+      if(!snapshot){try{if(window.opener&&window.opener.location.origin===location.origin)snapshot=window.opener.__shqOrderPreviews?.get(nonce)}catch{}}
       if(!snapshot){const raw=sessionStorage.getItem("shq-preview:"+nonce);if(!raw)throw new Error("Предпросмотр недоступен. Откройте его из редактора.");snapshot=JSON.parse(raw)}
       j={data:normalizeState(snapshot),preview:true,guest:null};
     }else{
@@ -198,7 +199,8 @@ function hexAlpha(h,a){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5)
   document.title=s.names||"Шақыру";
   R.setProperty("--ac",ac);
   R.setProperty("--al",`color-mix(in srgb,${ac} 60%,#fff)`);
-  mountScene(document.body,s);
+  const ambientScene=mountScene(document.body,s,{scrollDriven:!!(window.gsap&&window.ScrollTrigger)});
+  window.addEventListener('pagehide',event=>{if(!event.persisted)ambientScene.destroy()});
   if(j.preview){const pb=E("div","preview-banner");pb.innerHTML=`<span>👁️</span><span>${s.lang==="kz"?"Алдын ала қарау: қонақтар шақыруды ұйымдастырушы жариялағаннан кейін көреді":"Предпросмотр: гости увидят страницу после публикации организатором"}</span>`;vg.appendChild(pb)}
   if(j.guest){
     const gh=E("div","guest-hero");
@@ -325,8 +327,8 @@ function hexAlpha(h,a){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5)
     for(const field of languageResume.fields||[]){const input=document.getElementById(field.id);if(input&&!input.disabled&&input.closest('.rsvp-form')){input.value=field.value;input.checked=field.checked}}
     if(languageResume.sent){rsgl.replaceChildren(E('p','rsvp-success',t.th));rsgl.setAttribute('role','status')}
   }
-  const motion=mountInvitationScroll({host:vg,card:cw,state:s,opening:!j.preview&&!languageResume&&!q.get('print'),onActivate:()=>{if(hasMus&&!musOn)toggleMus()}});
-  if(q.get('embedded')==='1'){const savedScroll=Number(sessionStorage.getItem('shq-preview-scroll:'+location.hash.slice(1)))||0;requestAnimationFrame(()=>scrollTo(0,savedScroll))}
+  const motion=mountInvitationScroll({host:vg,card:cw,state:s,opening:!j.preview&&!languageResume&&!q.get('print'),onProgress:({ambientTime})=>ambientScene.seek(ambientTime),onActivate:()=>{if(hasMus&&!musOn)toggleMus()}});
+  if(q.get('embedded')==='1'){let savedScroll=0;try{savedScroll=Number(sessionStorage.getItem('shq-preview-scroll:'+location.hash.slice(1)))||0}catch{}requestAnimationFrame(()=>scrollTo(0,savedScroll))}
   if(q.get("print")&&!j.preview){setTimeout(()=>window.print(),600)}
   else if(j.preview){
     const testIntro=E("button","act-btn",s.lang==="kz"?"▶ Ашу анимациясын көру":"▶ Проверить анимацию открытия");
