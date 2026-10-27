@@ -1,0 +1,18 @@
+.invitation-delivery{margin:0 0 20px;padding:20px;border:1px solid var(--ln);border-radius:14px;background:var(--sf);color:var(--ink);min-width:0}
+.invitation-delivery[hidden],.invitation-delivery [hidden]{display:none!important}
+.invitation-delivery[data-delivery-state=published]{background:#e6f5ef;border-color:#cae4d8}
+.delivery-heading{display:flex;align-items:center;gap:10px}.delivery-heading h2{margin:0;font:700 22px/1.3 var(--display)}
+.delivery-badge{display:grid;place-items:center;flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--sky);color:var(--blue);font-size:20px}
+[data-delivery-state=published] .delivery-badge{background:#cae4d8;color:#27654e}
+.invitation-delivery p{margin:10px 0;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.delivery-steps{display:flex;flex-wrap:wrap;gap:8px 20px;padding-left:22px;margin:12px 0;font-size:11px;color:var(--mu)}.delivery-steps li{padding-right:10px}.delivery-steps [aria-current]{color:var(--ac);font-weight:700}
+.invitation-delivery label{display:block;margin:14px 0 6px;font-size:12px;font-weight:700}
+.invitation-delivery [data-delivery-url]{width:100%;min-width:0;border:1px solid var(--ln);border-radius:9px;padding:12px;background:var(--sf);color:var(--ink);font:14px/1.5 Montserrat,system-ui,sans-serif}
+.delivery-actions,.delivery-owner-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.delivery-actions a,.delivery-actions button,.delivery-owner-actions button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;max-width:100%;padding:10px 12px;border:1px solid var(--ln);border-radius:9px;background:var(--sf);color:var(--ink);text-decoration:none;font:600 12px/1.5 Montserrat,system-ui,sans-serif;cursor:pointer}
+.delivery-actions svg{width:20px;height:20px;flex-shrink:0}.delivery-actions [data-messenger=whatsapp]{color:#147a41;border-color:#b9dfc8;box-shadow:0 3px 12px #25d36612}.delivery-actions [data-messenger=telegram]{color:#1776a2;border-color:#b7deed;box-shadow:0 3px 12px #229ed912}
+.delivery-actions a:hover,.delivery-actions button:hover,.delivery-owner-actions button:hover{border-color:var(--ac);background:var(--soft)}.invitation-delivery :focus-visible{outline:3px solid var(--blue);outline-offset:3px}.invitation-delivery button:disabled{opacity:.55;cursor:not-allowed}
+.delivery-owner-actions{margin-bottom:4px}
+.invitation-delivery [data-delivery-status]:empty{display:none}
+#admin-publication .invitation-delivery{margin:16px 0 0;padding:14px}
+@media(max-width:600px){.invitation-delivery{padding:16px}.delivery-heading h2{font-size:21px}.delivery-actions{display:grid;grid-template-columns:1fr 1fr}.delivery-actions [data-delivery-copy],.delivery-actions [data-delivery-open]{grid-column:1/-1}.delivery-actions>*{width:100%;min-width:0}.invitation-delivery [data-delivery-url]{font-size:16px}.delivery-steps{gap:5px 20px}}

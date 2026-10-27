@@ -15,8 +15,8 @@ export function mountAdminWorkflow({api,getCurrent,change}){
   $('#admin-quote-form').onsubmit=async e=>{e.preventDefault();const value=$('#admin-quote-amount').value;if(!value.trim()||!Number.isInteger(Number(value))||Number(value)<0||Number(value)>1e7){$('#admin-workflow-error').textContent='Укажите целую сумму от 0 до 10 000 000 ₸.';$('#admin-quote-amount').focus();return}await mutate('quote',{amount:Number(value),note:$('#admin-quote-note').value})};
   $('#admin-save-rsvp-alerts').onclick=()=>void mutate('workflow',{rsvpAlerts:$('#admin-rsvp-alerts').checked});
   $('#admin-archive').onclick=()=>void mutate('workflow',{archived:!getCurrent()?.order.archivedAt});
-  $('#admin-approved-view').onclick=async()=>{const active=getCurrent();if(!active)return;try{const j=await api('/api/admin/orders/'+active.id+'/agreement');if(getCurrent()?.id===active.id)showOrderPreview($('#admin-preview'),j.data)}catch(e){$('#admin-workflow-error').textContent=e.message}};
-  $('#admin-current-view').onclick=()=>{const active=getCurrent();if(active)showOrderPreview($('#admin-preview'),active.data)};
+  $('#admin-approved-view').onclick=async()=>{const active=getCurrent();if(!active)return;try{const j=await api('/api/admin/orders/'+active.id+'/agreement');if(getCurrent()?.id===active.id)showOrderPreview($('#admin-preview'),j.data,{published:!!active.order.publishedAt})}catch(e){$('#admin-workflow-error').textContent=e.message}};
+  $('#admin-current-view').onclick=()=>{const active=getCurrent();if(active)showOrderPreview($('#admin-preview'),active.data,{published:!!active.order.publishedAt})};
   function render(current){
     const o=current.order,fresh=detailId!==current.id;detailId=current.id;
     $('#admin-stage-form').hidden=!!o.publishedAt;$('#admin-quote-form').hidden=!!o.publishedAt||!!o.archivedAt;

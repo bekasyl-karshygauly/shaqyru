@@ -7,12 +7,12 @@
 <meta property="og:title" content="Шақыру — онлайн-приглашения на той"><meta property="og:description" content="Красивые приглашения на русском и казахском языках с музыкой, программой и ответами гостей.">
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&family=Montserrat:wght@400;700&family=Pacifico&family=Lobster&family=Oswald:wght@400;700&family=Comfortaa:wght@400;700&family=Caveat:wght@400;700&display=swap" rel="stylesheet">
 <meta name="referrer" content="no-referrer">
-<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/brand.css"><link rel="stylesheet" href="/studio.css"><link rel="stylesheet" href="/celebration.css"><link rel="stylesheet" href="/experience.css"><link rel="stylesheet" href="/editing-tools.css"><link rel="stylesheet" href="/animation-tools.css"><link rel="stylesheet" href="/invitation-options.css"><link rel="stylesheet" href="/orders.css"><link rel="stylesheet" href="/support-contacts.css"><link rel="stylesheet" href="/order-workflow.css"></head><body class="design-studio">
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/brand.css"><link rel="stylesheet" href="/studio.css"><link rel="stylesheet" href="/invitation-delivery.css"><link rel="stylesheet" href="/celebration.css"><link rel="stylesheet" href="/experience.css"><link rel="stylesheet" href="/editing-tools.css"><link rel="stylesheet" href="/animation-tools.css"><link rel="stylesheet" href="/invitation-options.css"><link rel="stylesheet" href="/orders.css"><link rel="stylesheet" href="/support-contacts.css"><link rel="stylesheet" href="/order-workflow.css"></head><body class="design-studio">
 <a class="skip-editor" href="#sec-ev">К редактору</a>
 <div id="app" class="w" inert aria-busy="true">
 <header class="app-header"><a class="brand" href="/" aria-label="Шақыру — главная"><span class="brand-flower" aria-hidden="true">✽</span>Шақыру</a><nav class="editor-site-nav" aria-label="Навигация"><a href="/">Главная</a><a href="/library.html" id="library-link">Мои приглашения</a><a href="/create" aria-current="page">Создать приглашение</a></nav><div class="header-right"><div class="lang-pills" id="top-lang"><button class="top-pill" data-l="kz" type="button">ҚАЗ</button><button class="top-pill" data-l="ru" type="button">РУС</button></div></div></header>
 <section class="editor-intro"><div><a class="editor-breadcrumb" href="/">← На главную</a><h1 data-copy="editorTitle">Здесь начинается ваш праздник</h1><p data-copy="editorIntro">Выберите дизайн, добавьте детали — и приглашение оживёт.</p></div><span class="save-status" id="save-status" role="status">Черновик в браузере</span></section>
-<section id="editor-history" aria-label="История / Тарих"></section><div class="editor-navigation" id="editor-navigation"><nav class="step-nav" id="step-nav">
+<section id="editor-delivery-panel" aria-label="Готовность приглашения"></section><section id="editor-history" aria-label="История / Тарих"></section><div class="editor-navigation" id="editor-navigation"><nav class="step-nav" id="step-nav">
 <a class="step-pill on" href="#sec-ev"><span>1</span>Повод</a>
 <a class="step-pill" href="#sec-dsg"><span>2</span>Дизайн</a>
 <a class="step-pill" href="#sec-data"><span>3</span>Данные</a>
@@ -152,6 +152,8 @@ import {saveDraft,readDraft,draftKey} from "/draft-store.js";
 import {mountStoryEditor} from "/photo-story.js";
 import {mountSceneEditor} from "/celebration.js";
 import {mountDesignStudio} from "/studio.js";
+import {mountInvitationDelivery} from '/invitation-delivery.js';
+import {previewSnapshot} from '/order-components.js';
 globalThis.ShaqyruMedia={defaultCover,coverAsset};
 let S,flt="все";
 try{S=JSON.parse(localStorage.getItem("shq"))}catch(e){}
@@ -160,7 +162,7 @@ if(requestedDraft){try{const saved=await readDraft(requestedDraft);if(!saved)thr
 let libraryKey=draftKey(S?._localKey);let librarySave=Promise.resolve();
 const ownerRestoreId=new URLSearchParams(location.hash.slice(1)).get('id')||new URLSearchParams(location.search).get('id');
 if(ownerRestoreId&&ownerRestoreId!==S?.id){if(S)await saveDraft(libraryKey,S);libraryKey=draftKey()}
-let orderState=null,orderPanel;
+let orderState=null,orderPanel,deliveryPanel,deliveryPath=null,publicationError='',publicationVerified=false;
 const hadDraft=!!S,savedDirty=S?._dirty,savedVersion=S?._serverVersion;S=normalizeState(S||{});S.paid=0;S._dirty=savedDirty===undefined?Boolean(S.id):!!savedDirty;
 const requestedLang=new URLSearchParams(location.search).get('lang');if(requestedLang==='ru'||requestedLang==='kz'){if(S.lang!==requestedLang&&!S.te)S.text=EV[S.ev][requestedLang==='kz'?3:4];S.lang=requestedLang}
 let cloudTimer,cloudJob=Promise.resolve(),revision=0,cloudReady=false,serverVersion=savedVersion||null,conflicted=false;
@@ -184,7 +186,7 @@ const tx=()=>EV[S.ev][S.lang=="kz"?3:4];
 let galleryKey="";
 const tierLabel=tier=>S.lang==="kz"?["","Базалық","Стандарт","Премиум","Люкс"][tier]:TN[tier];
 function gal(){const key=JSON.stringify([flt,S.ev,S.lang,S.names,S.text,S.date,S.time,S.place,S.addr,S.hosts,S.cover]);if(key===galleryKey){$("#gal").querySelectorAll("button[data-i]").forEach(b=>b.classList.toggle("on",+b.dataset.i===S.dsg));return}galleryKey=key;$("#gal").innerHTML=DG.map((d,i)=>flt!="все"&&d[1]!=flt?"":`<button class="g${i==S.dsg?" on":""}" data-i="${i}" type="button"><div class="cw">${card({...S,dsg:i,c:{},font:"",photo:"",cover:S.cover==="none"?"none":(S.cover||getDefCover(S.ev,i)),frame:"thin"},{free:1,nofx:1,defCover:1,thumbnail:true})}</div><b>${d[0]}</b><span>${tierLabel(d[2])} · ${rub(PR[d[2]])}</span></button>`).join("")}
-function pv(anim){const el=$("#pv");el.innerHTML=card(S);if(anim==2)playIn(el,S);else if(anim){el.classList.remove("pop");void el.offsetWidth;el.classList.add("pop")}
+function pv(anim){const el=$("#pv");el.innerHTML=card(S);deliveryPanel?.update({published:!!S.paid,checking:!!S.id&&!cloudReady&&!publicationVerified,error:publicationError,order:orderState,id:S.id,path:deliveryPath,names:S.names,data:S,dirty:!!S._dirty,lang:S.lang});if(anim==2)playIn(el,S);else if(anim){el.classList.remove("pop");void el.offsetWidth;el.classList.add("pop")}
 const d=DG[S.dsg];$("#pr").textContent=rub(PR[d[2]]);$("#tn").textContent=tierLabel(d[2])+" · "+d[0];
 $("#act").innerHTML='<button class="gh" id="pvw" type="button">Предпросмотр</button>'+(S.paid?'<button class="go" id="gs" type="button">Гости и ссылки</button>':'<button class="go" id="buy" type="button">Согласовать заказ</button>');if(S.paid&&orderState){const b=document.createElement('button');b.className='gh';b.id='manage-order';b.type='button';b.textContent=S.lang==='kz'?'Тапсырыс және пікір':'Заказ и отзыв';$('#act').append(b)}if($("#buy"))$("#buy").textContent=S.lang==="kz"?(orderState?"Өтінім жіберілді":"Тапсырысты келісу"):(orderState?"Заявка отправлена":"Согласовать заказ");translateEditor(S.lang)}
 function covGal(){const curCov=S.cover==="none"?"none":(S.cover||getDefCover(S.ev,S.dsg)),isNone=curCov==="none";
@@ -404,13 +406,13 @@ function openPreview(full=true){
   stopPreviewAudio();sv();
   if(!full){setMobTab("prev");return}
   const nonce=crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==="x"?r:(r&3|8)).toString(16)});
-  const snapshot=cdata(),snapshots=window.__shqOrderPreviews??=new Map();snapshots.set(nonce,snapshot);while(snapshots.size>4)snapshots.delete(snapshots.keys().next().value);
+  const snapshot=previewSnapshot(cdata(),!!S.paid),snapshots=window.__shqOrderPreviews??=new Map();snapshots.set(nonce,snapshot);while(snapshots.size>4)snapshots.delete(snapshots.keys().next().value);
   const embedded=()=>{snapshots.delete(nonce);setMobTab("prev");livePreview?.open();setSaveStatus("Открыт встроенный предпросмотр")};
   let payload;try{payload=JSON.stringify(snapshot);sessionStorage.setItem("shq-preview:"+nonce,payload)}catch(e){embedded();return}
   const preview=window.open("/preview#"+nonce,"_blank");
   if(!preview)embedded();else{try{preview.sessionStorage.setItem("shq-preview:"+nonce,payload)}catch{}}
 }
-orderPanel=mountOrderDialog({state:()=>S,price:()=>PR[DG[S.dsg][2]],designName:()=>DG[S.dsg]?.[0]||'',save:saveSrv,request:api,version:()=>serverVersion,onState:j=>{orderState=j.order||null;if(j.paid!==undefined)S.paid=j.paid?1:0;if(j.version&&!S._dirty)serverVersion=j.version;sv();pv();$("#payment-status").textContent=S.paid?(S.lang==="kz"?"Шақыру жарияланды. Қонақтар сілтемесі дайын.":"Приглашение опубликовано. Гостевая ссылка готова."):orderState?(S.lang==="kz"?"Өтінім келісілуде.":"Заявка на согласовании."):""}});
+orderPanel=mountOrderDialog({state:()=>S,price:()=>PR[DG[S.dsg][2]],designName:()=>DG[S.dsg]?.[0]||'',save:saveSrv,request:api,version:()=>serverVersion,onState:j=>{publicationVerified=true;publicationError='';orderState=j.order||null;if(j.paid!==undefined)S.paid=j.paid?1:0;if(j.guestPath)deliveryPath=j.guestPath;if(j.version&&!S._dirty)serverVersion=j.version;sv();pv();$("#payment-status").textContent=S.paid?(S.lang==="kz"?"Шақыру жарияланды. Қонақтар сілтемесі дайын.":"Приглашение опубликовано. Гостевая ссылка готова."):orderState?(S.lang==="kz"?"Өтінім келісілуде.":"Заявка на согласовании."):""}});
 mountDesignFavorites({state:()=>S,designs:DG});
 async function checkPayment(){return orderPanel.refresh()}
 async function openPay(){return orderPanel.open()}
@@ -452,7 +454,7 @@ const restoreId=hash.get("id")||qs.get("id"),restoreToken=hash.get("t")||qs.get(
 if(restoreId&&restoreToken){S.id=restoreId;S.tok=restoreToken;history.replaceState(null,"","/create")}
 if(S.id&&S.tok){
   api("GET","/api/inv/"+S.id+"/status").then(j=>{
-    orderState=j.order||null;passwordStatus(!!j.passwordSet);S.paid=j.paid?1:0;S.paidTier=j.paidTier||0;cloudReady=true;
+    orderState=j.order||null;deliveryPath=j.guestPath||null;passwordStatus(!!j.passwordSet);S.paid=j.paid?1:0;S.paidTier=j.paidTier||0;cloudReady=true;
     const remoteVersion=j.version||"legacy";
     if(restoreId||(!S._dirty&&revision===0)){serverVersion=remoteVersion;S={...normalizeState(j.data),id:S.id,tok:S.tok,paid:j.paid?1:0,paidTier:j.paidTier||0,_dirty:false};all();editHistory?.capture()}
     else if((serverVersion&&serverVersion!==remoteVersion)||(!serverVersion&&remoteVersion!=="legacy")){showConflict()}
@@ -462,12 +464,13 @@ if(S.id&&S.tok){
     else if(S._dirty&&!conflicted)saveSrv().catch(e=>setSaveStatus("Ошибка сохранения: "+e.message,true));
     else if(conflicted)setSaveStatus("Конфликт версий · черновик сохранён в браузере",true);
     else setSaveStatus("✓ Сохранено на сервере");
-  }).catch(e=>setSaveStatus("Не удалось проверить сервер: "+e.message,true));
+  }).catch(e=>{publicationError='Не удалось проверить сервер: '+e.message;pv();setSaveStatus(publicationError,true)});
 }
 function startPaymentPoll(){let count=0;const timer=setInterval(async()=>{if(++count>20){clearInterval(timer);return}try{if(await checkPayment())clearInterval(timer)}catch(e){clearInterval(timer);$("#payment-status").textContent=e.message}},3000)}
 window.addEventListener("online",()=>{if(S.id&&cloudReady)saveSrv().catch(e=>setSaveStatus("Ошибка сохранения: "+e.message,true))});
 accountSync=mountAutoSync(document.querySelector('.editor-intro'),{key:libraryKey,state:()=>({...S,_serverVersion:serverVersion})});
 livePreview=mountLivePreview($('#pvw-col'),{state:()=>S});
+deliveryPanel=mountInvitationDelivery($('#editor-delivery-panel'),{onRefresh:()=>orderPanel.refresh(),onOrder:()=>orderPanel.open()});
 languageEditor=mountLanguageEditor($('#sec-ev'),{state:()=>S,onChange:showSaveIndicator});
 comparison=mountComparison($('#sec-dsg'),{key:libraryKey,state:()=>S,apply:data=>{Object.assign(S,data);introPhotoEditor?.update();all();showSaveIndicator()}});
 detailsEditor=mountDetailsEditor($('#guest-details-editor'),{state:()=>S,onChange:showSaveIndicator});
