@@ -9,6 +9,7 @@ async function fixture(context,{ready=false,existing=false,subscribed=false,publ
   const state={ready,data:{...sample},version:'version-1',revision:1,order:existing?{status:published?'published':'submitted',submittedAt:'2026-10-28T08:00:00Z',publishedAt:published?'2026-10-28T08:30:00Z':null,contact:{name:'Тестовый клиент',phone:'+7 700 123 45 67',email:'client@example.com'},note:'',price:2490,services:[],revisions:[],history:[],quote:null,approval:null,needsAgreement:false,notifications:{whatsapp:subscribed?consent():{enabled:false}}}:null,requests:[],statusReads:0,guestPath};
   const version=()=>state.version='version-'+(++state.revision);
   const result=()=>({order:state.order,version:state.version,paid:!!state.order?.publishedAt,paidTier:state.order?.publishedAt?4:0,guestPath:state.order?.publishedAt?state.guestPath:null});
+  state.accept=(route,body)=>{if(body.version!==state.version||body.quoteId!==state.order?.quote?.id)return route.fulfill({status:409,json:{error:'Стоимость изменилась. Обновите заявку.'}});const at='2026-10-28T20:00:00Z';state.order={...state.order,status:'ready',price:state.order.quote.amount,quote:{...state.order.quote,acceptedAt:at},approval:{at,price:state.order.quote.amount,current:true,names:state.data.names,dsg:state.data.dsg}};version();return route.fulfill({json:result()})};
   await context.route('https://fonts.googleapis.com/**',route=>route.abort());await context.route('https://fonts.gstatic.com/**',route=>route.abort());
   await context.route('**/api/**',async route=>{
     const request=route.request(),p=new URL(request.url()).pathname,method=request.method(),body=method==='GET'?null:request.postDataJSON();
@@ -22,8 +23,9 @@ async function fixture(context,{ready=false,existing=false,subscribed=false,publ
     if(p==='/api/admin/notifications')return route.fulfill({json:{publicUrl:true,queueReady:true,telegram:{configured:false},whatsapp:{configured:false},client:{configured:state.ready,enabled:state.ready,publicUrl:true,queueReady:true}}});
     if(p==='/api/admin/orders/'+id)return route.fulfill({json:{id,data:state.data,order:state.order,version:state.version,guestPath:state.guestPath,notifications:[],clientNotifications:[]}});
     if(p==='/api/inv'&&method==='POST'){state.data=body.data;return route.fulfill({json:{id,tok:ownerToken,version:state.version,paid:false}})}
-    if(p==='/api/inv/'+id&&method==='PUT'){if(body.version!==state.version)return route.fulfill({status:409,json:{error:'Версия изменилась',conflict:true}});state.data=body.data;version();return route.fulfill({json:result()})}
-    if(p==='/api/inv/'+id+'/status'){state.statusReads++;return route.fulfill({json:{data:state.data,...result()}})}
+    if(p==='/api/inv/'+id&&method==='PUT'){if(state.saveBehavior)return state.saveBehavior(route,body);if(body.version!==state.version)return route.fulfill({status:409,json:{error:'Версия изменилась',conflict:true}});state.data=body.data;version();return route.fulfill({json:result()})}
+    if(p==='/api/inv/'+id+'/status'){state.statusReads++;if(state.failFirstStatus&&state.statusReads===1)return route.fulfill({status:503,json:{error:'Временный сбой сервера'}});return route.fulfill({json:{data:state.data,...result()}})}
+    if(p==='/api/inv/'+id+'/order/accept'&&method==='POST')return state.acceptBehavior?state.acceptBehavior(route,body):state.accept(route,body);
     if(p==='/api/inv/'+id+'/order'&&method==='POST'){
       if(body.version!==state.version)return route.fulfill({status:409,json:{error:'Версия изменилась'}});
       state.order={...state.order,status:state.order?.status||'submitted',submittedAt:state.order?.submittedAt||'2026-10-28T08:00:00Z',publishedAt:null,contact:body.contact,note:body.note,price:2490,services:[],revisions:[],history:[],notifications:{whatsapp:body.notifications?.whatsapp?consent():{enabled:false}}};version();return route.fulfill({json:result()});
@@ -44,7 +46,59 @@ async function fixture(context,{ready=false,existing=false,subscribed=false,publ
 async function seed(context){await context.addInitScript(({id,ownerToken,sample})=>localStorage.setItem('shq',JSON.stringify({...sample,id,tok:ownerToken,_dirty:false,_serverVersion:'version-1'})),{id,ownerToken,sample})}
 async function openOrder(page,{existing=false,lang='ru'}={}){await page.goto('/create?lang='+lang);if(existing)await expect(page.locator('#editor-delivery-panel')).toHaveAttribute('data-delivery-state',/submitted|published/);await page.locator('#editor-delivery-panel [data-delivery-order]').click();await expect(page.locator('#order-dialog')).toBeVisible()}
 async function login(page){await page.goto('/admin#order='+id);await page.locator('#k').fill('test-admin');await page.locator('#ld').click();await expect(page.locator('#admin-detail')).toBeVisible()}
+async function quotedOrder(context){const state=await fixture(context,{existing:true});state.order={...state.order,status:'discussion',quote:{id:'quote-8990',amount:8990,note:'Дизайн и срочное изготовление',offeredAt:'2026-10-28T17:51:00Z'}};await seed(context);return state}
 test.beforeEach(async({page})=>{await page.emulateMedia({reducedMotion:'reduce'})});
+
+test('Price confirmation succeeds beside its button and works without AbortSignal.timeout',async({page,context})=>{
+  const state=await quotedOrder(context);await context.addInitScript(()=>Object.defineProperty(AbortSignal,'timeout',{configurable:true,value:undefined}));await page.setViewportSize({width:390,height:844});await openOrder(page,{existing:true});
+  await expect(page.locator('#client-quote-price')).toHaveText('8 990 ₸');await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();
+  await expect(page.locator('#client-quote-feedback')).toContainText('Цена и вариант подтверждены');await expect(page.locator('#client-approval-state')).toContainText('Подтверждено');await expect(page.locator('#client-accept-quote')).toHaveText('Цена и вариант подтверждены');await expect(page.locator('#client-accept-quote')).toBeDisabled();
+  await expect(page.locator('#client-quote-consent')).toBeChecked();
+  expect(state.requests.filter(r=>r.path.endsWith('/order/accept'))).toHaveLength(1);expect(state.order.approval.price).toBe(8990);await page.locator('#client-quote').scrollIntoViewIfNeeded();await page.screenshot({path:'preview-client-quote-confirmed.png'});
+});
+
+test('Slow price confirmation displays progress and cannot submit twice',async({page,context})=>{
+  const state=await quotedOrder(context);let release;const gate=new Promise(resolve=>release=resolve);state.acceptBehavior=async(route,body)=>{await gate;return state.accept(route,body)};await openOrder(page,{existing:true});await page.locator('#client-quote-consent').check();const button=page.locator('#client-accept-quote');const width=(await button.boundingBox()).width;await button.click();
+  await expect(button).toHaveText('Подтверждаем…');await expect(button).toHaveAttribute('aria-busy','true');await expect(button).toBeDisabled();await expect(page.locator('#client-quote-feedback')).toContainText('подтверждаем');expect(Math.abs((await button.boundingBox()).width-width)).toBeLessThanOrEqual(1);
+  await button.evaluate(e=>{e.click();e.click()});await expect.poll(()=>state.requests.filter(r=>r.path.endsWith('/order/accept')).length).toBe(1);release();await expect(page.locator('#client-approval-state')).toContainText('Подтверждено');
+});
+
+test('A failed initial server load can recover through the order dialog and then confirm the price',async({page,context})=>{
+  const state=await quotedOrder(context);state.failFirstStatus=true;await page.goto('/create?lang=ru');await expect(page.locator('#editor-delivery-panel [data-delivery-heading]')).toHaveText('Не удалось проверить готовность');
+  await page.locator('#editor-delivery-panel [data-delivery-order]').click();await expect(page.locator('#client-quote-price')).toHaveText('8 990 ₸');await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();
+  await expect(page.locator('#client-approval-state')).toContainText('Подтверждено');expect(state.requests.filter(r=>r.path.endsWith('/order/accept'))).toHaveLength(1);expect(state.order.approval.price).toBe(8990);
+});
+
+test('Initial-load recovery keeps conflicting dirty drafts protected',async({page,context})=>{
+  const state=await quotedOrder(context);state.failFirstStatus=true;await context.addInitScript(()=>{const s=JSON.parse(localStorage.getItem('shq'));localStorage.setItem('shq',JSON.stringify({...s,names:'Мои несохранённые правки',_dirty:true,_serverVersion:'older-version'}))});await page.goto('/create?lang=ru');await expect(page.locator('#editor-delivery-panel [data-delivery-heading]')).toHaveText('Не удалось проверить готовность');
+  await page.locator('#editor-delivery-panel [data-delivery-order]').click();await expect(page.locator('#client-quote-price')).toHaveText('8 990 ₸');await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();await expect(page.locator('#client-quote-error')).toContainText('конфликт');
+  expect(state.requests.filter(r=>r.path.endsWith('/order/accept'))).toHaveLength(0);expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shq')).names)).toBe('Мои несохранённые правки');
+});
+
+test('Changed quote errors stay beside the button and require fresh consent after refresh',async({page,context})=>{
+  const state=await quotedOrder(context);state.acceptBehavior=route=>route.fulfill({status:409,json:{error:'Стоимость изменилась. Обновите заявку.'}});await openOrder(page,{existing:true});await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();
+  await expect(page.locator('#client-quote-error')).toContainText('Стоимость изменилась');await expect(page.locator('#client-quote-error')).toBeInViewport();await expect(page.locator('#client-quote-recovery')).toHaveText('Обновить условия');
+  state.order.quote={id:'quote-9990',amount:9990,offeredAt:'2026-10-28T20:00:00Z'};state.version='new-quote-version';await page.locator('#client-quote-recovery').click();await expect(page.locator('#client-quote-price')).toHaveText('9 990 ₸');await expect(page.locator('#client-quote-consent')).not.toBeChecked();expect(state.requests.filter(r=>r.path.endsWith('/order/accept'))).toHaveLength(1);
+  state.acceptBehavior=null;await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();await expect(page.locator('#client-approval-state')).toContainText('Подтверждено');expect(state.order.approval.price).toBe(9990);
+});
+
+test('Save conflicts are visible at the quote and lead to the existing draft recovery without acceptance',async({page,context})=>{
+  const state=await quotedOrder(context);state.saveBehavior=route=>route.fulfill({status:409,json:{error:'Приглашение изменилось в другой вкладке. Сохраните свой черновик и загрузите актуальную версию.',conflict:true}});await page.setViewportSize({width:390,height:844});await openOrder(page,{existing:true});await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();
+  await expect(page.locator('#client-quote-error')).toContainText('другой вкладке');await expect(page.locator('#client-quote-error')).toBeInViewport();expect(state.requests.filter(r=>r.path.endsWith('/order/accept'))).toHaveLength(0);await page.screenshot({path:'preview-client-quote-conflict.png'});
+  await page.locator('#client-quote-recovery').click();await expect(page.locator('#order-dialog')).not.toBeVisible();await expect(page.locator('#reload-server')).toBeFocused();await expect(page.locator('#edit-conflict')).toBeVisible();expect(state.order.approval).toBeNull();
+});
+
+test('Malformed confirmation responses cannot claim success',async({page,context})=>{
+  const state=await quotedOrder(context);state.acceptBehavior=route=>route.fulfill({json:{}});await openOrder(page,{existing:true});await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();await expect(page.locator('#client-quote-error')).toContainText('Сервер не подтвердил');await expect(page.locator('#client-quote-error')).toBeInViewport();await expect(page.locator('#client-accept-quote')).toBeEnabled();await expect(page.locator('#client-approval-state')).not.toContainText('Подтверждено');expect(state.order.approval).toBeNull();
+});
+
+test('Missing agreement explains the action without making a save or acceptance request',async({page,context})=>{
+  const state=await quotedOrder(context);await openOrder(page,{existing:true});await page.locator('#client-accept-quote').click();await expect(page.locator('#client-quote-error')).toContainText('Подтвердите согласие');await expect(page.locator('#client-quote-consent')).toBeFocused();expect(state.requests.filter(r=>r.path.endsWith('/order/accept')||r.path==='/api/inv/'+id&&r.method==='PUT')).toHaveLength(0);
+});
+
+test('Network failure during acceptance gives a readable local recovery',async({page,context})=>{
+  const state=await quotedOrder(context);state.acceptBehavior=route=>route.abort('failed');await openOrder(page,{existing:true});await page.locator('#client-quote-consent').check();await page.locator('#client-accept-quote').click();await expect(page.locator('#client-quote-error')).toContainText('Не удалось связаться с сервером');await expect(page.locator('#client-quote-recovery')).toBeVisible();expect(state.order.approval).toBeNull();
+});
 
 test('Customer gets the guest link inside the already open order dialog after organizer publication',async({page,context})=>{
   const state=await fixture(context,{existing:true});await seed(context);
