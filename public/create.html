@@ -377,8 +377,13 @@ $("#animg").onclick=e=>{const b=e.target.closest(".anb");if(!b)return;S.anim=b.d
 $("#fxg").onclick=e=>{const b=e.target.closest(".fxb");if(!b)return;S.fx=b.dataset.fx;fxGal();sv();pv(2);showSaveIndicator()};
 $("#tani").onclick=()=>showIntro(S,null,{manual:true});
 const api=async(m,u,b)=>{
-  const r=await fetch(u,{method:m,headers:{"Content-Type":"application/json",...ownerHeaders()},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(20000)});
-  const j=await r.json().catch(()=>({}));if(!r.ok){const error=new Error(j.error||"Ошибка "+r.status);error.status=r.status;if(j.conflict)showConflict();throw error}return j;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+  try{
+    const r=await fetch(u,{method:m,headers:{"Content-Type":"application/json",...ownerHeaders()},body:b?JSON.stringify(b):undefined,signal:controller.signal});
+    let j;try{j=JSON.parse(await r.text())}catch{throw Object.assign(new Error('Сервер вернул некорректный ответ. Обновите условия и проверьте статус перед повтором.'),{status:r.status})}
+    if(!r.ok){const error=new Error(j.error||'Не удалось выполнить действие. Обновите условия и повторите.');error.status=r.status;if(j.conflict)showConflict();throw error}return j;
+  }catch(error){if(error.status!==undefined)throw error;throw new Error(controller.signal.aborted?'Сервер не ответил за 20 секунд. Обновите условия и проверьте статус перед повтором.':'Не удалось связаться с сервером. Проверьте подключение и обновите условия.')}
+  finally{clearTimeout(timer)}
 };
 const cdata=()=>{const{id,tok,paid,paidTier,_dirty,...d}=S;return d};
 function saveSrv(){
@@ -412,7 +417,14 @@ function openPreview(full=true){
   const preview=window.open("/preview#"+nonce,"_blank");
   if(!preview)embedded();else{try{preview.sessionStorage.setItem("shq-preview:"+nonce,payload)}catch{}}
 }
-orderPanel=mountOrderDialog({state:()=>S,price:()=>PR[DG[S.dsg][2]],designName:()=>DG[S.dsg]?.[0]||'',save:saveSrv,request:api,version:()=>serverVersion,onState:j=>{publicationVerified=true;publicationError='';orderState=j.order||null;if(j.paid!==undefined)S.paid=j.paid?1:0;if(j.guestPath)deliveryPath=j.guestPath;if(j.version&&!S._dirty)serverVersion=j.version;sv();pv();$("#payment-status").textContent=S.paid?(S.lang==="kz"?"Шақыру жарияланды. Қонақтар сілтемесі дайын.":"Приглашение опубликовано. Гостевая ссылка готова."):orderState?(S.lang==="kz"?"Өтінім келісілуде.":"Заявка на согласовании."):""}});
+function recoverCloudReadiness(j){
+  if(cloudReady||!j.data||!j.version)return;
+  const remoteVersion=j.version;cloudReady=true;
+  if(!S._dirty&&revision===0){serverVersion=remoteVersion;S={...normalizeState(j.data),id:S.id,tok:S.tok,paid:j.paid?1:0,paidTier:j.paidTier||0,_dirty:false};all();editHistory?.capture()}
+  else if((serverVersion&&serverVersion!==remoteVersion)||(!serverVersion&&remoteVersion!=='legacy'))showConflict();
+  else serverVersion=remoteVersion;
+}
+orderPanel=mountOrderDialog({state:()=>S,price:()=>PR[DG[S.dsg][2]],designName:()=>DG[S.dsg]?.[0]||'',save:saveSrv,request:api,version:()=>serverVersion,onState:j=>{recoverCloudReadiness(j);publicationVerified=true;publicationError='';orderState=j.order||null;if(j.paid!==undefined)S.paid=j.paid?1:0;if(j.guestPath)deliveryPath=j.guestPath;if(j.version&&!S._dirty)serverVersion=j.version;sv();pv();$("#payment-status").textContent=S.paid?(S.lang==="kz"?"Шақыру жарияланды. Қонақтар сілтемесі дайын.":"Приглашение опубликовано. Гостевая ссылка готова."):orderState?(S.lang==="kz"?"Өтінім келісілуде.":"Заявка на согласовании."):""}});
 mountDesignFavorites({state:()=>S,designs:DG});
 async function checkPayment(){return orderPanel.refresh()}
 async function openPay(){return orderPanel.open()}
@@ -454,6 +466,7 @@ const restoreId=hash.get("id")||qs.get("id"),restoreToken=hash.get("t")||qs.get(
 if(restoreId&&restoreToken){S.id=restoreId;S.tok=restoreToken;history.replaceState(null,"","/create")}
 if(S.id&&S.tok){
   api("GET","/api/inv/"+S.id+"/status").then(j=>{
+    if(cloudReady)return;
     orderState=j.order||null;deliveryPath=j.guestPath||null;passwordStatus(!!j.passwordSet);S.paid=j.paid?1:0;S.paidTier=j.paidTier||0;cloudReady=true;
     const remoteVersion=j.version||"legacy";
     if(restoreId||(!S._dirty&&revision===0)){serverVersion=remoteVersion;S={...normalizeState(j.data),id:S.id,tok:S.tok,paid:j.paid?1:0,paidTier:j.paidTier||0,_dirty:false};all();editHistory?.capture()}
@@ -464,7 +477,7 @@ if(S.id&&S.tok){
     else if(S._dirty&&!conflicted)saveSrv().catch(e=>setSaveStatus("Ошибка сохранения: "+e.message,true));
     else if(conflicted)setSaveStatus("Конфликт версий · черновик сохранён в браузере",true);
     else setSaveStatus("✓ Сохранено на сервере");
-  }).catch(e=>{publicationError='Не удалось проверить сервер: '+e.message;pv();setSaveStatus(publicationError,true)});
+  }).catch(e=>{if(cloudReady)return;publicationError='Не удалось проверить сервер: '+e.message;pv();setSaveStatus(publicationError,true)});
 }
 function startPaymentPoll(){let count=0;const timer=setInterval(async()=>{if(++count>20){clearInterval(timer);return}try{if(await checkPayment())clearInterval(timer)}catch(e){clearInterval(timer);$("#payment-status").textContent=e.message}},3000)}
 window.addEventListener("online",()=>{if(S.id&&cloudReady)saveSrv().catch(e=>setSaveStatus("Ошибка сохранения: "+e.message,true))});

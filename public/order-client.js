@@ -17,7 +17,7 @@ export function mountOrderDialog({state,save,request,onState,version,designName=
   const messaging=document.createElement('section');messaging.id='order-messengers';messaging.className='order-messengers';
   messaging.innerHTML='<h3></h3><p></p><details><summary></summary><pre class="order-message"></pre></details><div class="support-links"><a id="order-whatsapp" target="_blank" rel="noopener noreferrer"></a><a id="order-telegram" target="_blank" rel="noopener noreferrer"></a></div>';
   dialog.append(messaging);
-  const workflow=mountClientOrderWorkflow({dialog,state,getOrder:()=>order,request,version,save,price,commit:j=>{order=j.order||order;onState(j);render()}});
+  const workflow=mountClientOrderWorkflow({dialog,state,getOrder:()=>order,request,version,save,price,refresh,commit:j=>{order=j.order||order;onState(j);render()}});
   $('#order-form').addEventListener('input',()=>editRevision++);
   function render(){
     $('#order-title').textContent=t('Согласовать заказ','Тапсырысты келісу');$('#order-explanation').textContent=t('Отправьте заявку организатору. Вместе вы согласуете стоимость, правки и способ оплаты. После публикации получите ссылку для гостей.','Өтінімді ұйымдастырушыға жіберіңіз. Бағасын, өзгерістерді және төлем тәсілін бірге келісесіз. Жарияланғаннан кейін қонақтарға сілтеме беріледі.');
