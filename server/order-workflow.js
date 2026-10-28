@@ -4,10 +4,10 @@ import {assertVersion,updateInvitation} from './invitation-store.js';
 import {contentHash,servicesHash,logOrder,orderView,checkPublication,problem} from './order-domain.js';
 import {ORDER_STATUSES} from './public/order-model.js';
 
-export function mountOrderWorkflow(app,{sb,inv,own,admin,h,limit}){
+export function mountOrderWorkflow(app,{sb,inv,own,admin,h,limit,clientNotifications}){
   async function ownerOrder(req,res){const i=await own(req,res);if(!i)return null;if(!i.data._order)throw problem(404,'Сначала отправьте заявку.');return i}
   async function adminOrder(req,res){if(!admin(req,res))return null;const i=await inv(req.params.id);if(!i?.data._order)throw problem(404,'Заявка не найдена');return i}
-  async function save(i,order,res){const data={...i.data,_order:order},version=await updateInvitation(sb,i,data);res.json({order:orderView({data}),version})}
+  async function save(i,order,res){const data={...i.data,_order:order},version=await updateInvitation(sb,i,data);clientNotifications?.kick();res.json({order:orderView({data}),version})}
   app.get('/api/services',h(async(req,res)=>res.json(await sb('/shq_services?enabled=eq.true&select=id,name_ru,name_kz,price,enabled,version&order=position.asc,id.asc'))));
   app.get('/api/admin/services',h(async(req,res)=>{if(!admin(req,res))return;res.json(await sb('/shq_services?select=*&order=position.asc,id.asc'))}));
   app.put('/api/admin/services/:service',limit('service-edit',30,60000),h(async(req,res)=>{
@@ -18,7 +18,7 @@ export function mountOrderWorkflow(app,{sb,inv,own,admin,h,limit}){
   }));
   app.post('/api/admin/orders/:id/workflow',h(async(req,res)=>{
     const i=await adminOrder(req,res);if(!i)return;assertVersion(i,req.body?.version);const b=req.body||{};let o={...i.data._order};
-    if(b.status!==undefined){if(!Object.hasOwn(ORDER_STATUSES,b.status)||b.status==='published'||o.publishedAt)throw problem(400,'Опубликованный заказ нельзя вернуть в работу; используйте архив.');if(b.status==='ready')checkPublication(i);o=logOrder({...o,status:b.status},'admin','status',{status:b.status})}
+    if(b.status!==undefined){if(!Object.hasOwn(ORDER_STATUSES,b.status)||b.status==='published'||o.publishedAt)throw problem(400,'Опубликованный заказ нельзя вернуть в работу; используйте архив.');if(b.status==='ready')checkPublication(i);const rejectionReason=b.status==='rejected'?String(b.rejectionReason||'').trim().slice(0,500):null;if(b.status==='rejected'&&!rejectionReason)throw problem(400,'Укажите причину отказа для клиента.');o=logOrder({...o,status:b.status,rejectionReason},'admin','status',{status:b.status,...(rejectionReason?{text:rejectionReason}:{})})}
     if(b.archived!==undefined){if(typeof b.archived!=='boolean')throw problem(400,'Некорректное состояние архива');o=logOrder({...o,archivedAt:b.archived?new Date().toISOString():null},'admin',b.archived?'archived':'restored')}
     if(b.rsvpAlerts!==undefined){if(typeof b.rsvpAlerts!=='boolean')throw problem(400,'Некорректная настройка уведомлений');o=logOrder({...o,rsvpAlerts:b.rsvpAlerts},'admin','rsvpAlerts',{enabled:b.rsvpAlerts})}
     await save(i,o,res);
@@ -32,6 +32,7 @@ export function mountOrderWorkflow(app,{sb,inv,own,admin,h,limit}){
   }));
   app.post('/api/inv/:id/order/accept',h(async(req,res)=>{
     const i=await ownerOrder(req,res);if(!i)return;assertVersion(i,req.body?.version);const o=i.data._order;
+    if(o.status==='rejected')throw problem(409,'Заявка отклонена. Сначала обновите заявку для повторного рассмотрения.');
     if(!o.quote||req.body?.quoteId!==o.quote.id)throw problem(409,'Стоимость изменилась. Обновите заявку.');
     if(o.archivedAt)throw problem(409,'Заказ находится в архиве. Свяжитесь с организатором.');
     const approval={quoteId:o.quote.id,at:new Date().toISOString(),price:o.quote.amount,hash:contentHash(i.data),servicesHash:servicesHash(o.services),snapshot:clean(i.data)};
@@ -41,7 +42,7 @@ export function mountOrderWorkflow(app,{sb,inv,own,admin,h,limit}){
   app.post('/api/inv/:id/order/revisions',limit('revision-add',30,3600000),h(async(req,res)=>{
     const i=await ownerOrder(req,res);if(!i)return;assertVersion(i,req.body?.version);const text=String(req.body?.text||'').trim();
     if(!text||text.length>1000)throw problem(400,'Опишите правку: до 1000 символов.');
-    const o=i.data._order;if(o.archivedAt)throw problem(409,'Заказ в архиве. Свяжитесь с организатором.');if((o.revisions||[]).length>=100)throw problem(400,'Достигнут предел правок в заказе. Обсудите изменения с организатором.');
+    const o=i.data._order;if(o.status==='rejected')throw problem(409,'Заявка отклонена. Сначала обновите заявку для повторного рассмотрения.');if(o.archivedAt)throw problem(409,'Заказ в архиве. Свяжитесь с организатором.');if((o.revisions||[]).length>=100)throw problem(400,'Достигнут предел правок в заказе. Обсудите изменения с организатором.');
     const item={id:crypto.randomUUID(),text,createdAt:new Date().toISOString(),doneAt:null};
     await save(i,logOrder({...o,status:o.publishedAt?'published':'changes',revisions:[...(o.revisions||[]),item]},'client','revision',{text}),res);
   }));
