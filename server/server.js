@@ -1,6 +1,7 @@
 import {mountCollaborators} from './collaborators.js';
 import {mountOrders,publishedManually,orderForOwner} from './orders.js';
 import {createOrderNotifications} from './order-notifications.js';
+import {createClientNotifications} from './client-notifications.js';
 import {createInvitationLinks} from './invitation-links.js';
 import {cleanRsvpDetails} from './public/rsvp-details.js';
 import express from "express";
@@ -91,9 +92,12 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
   async function rsvpDetailsReady(){if(rsvpReadiness.until>Date.now())return rsvpReadiness.ready;let ready=false;try{await sb('/shq_guests?select=details&limit=0');ready=true}catch{}rsvpReadiness={until:Date.now()+10000,ready};return ready}
   mountCollaborators(app,{sb,inv,own,entitlement,h,limit:lim});
   const notifications=createOrderNotifications({env,sb,inv,fetchImpl});app.locals.orderNotifications=notifications;
-  mountOrders(app,{env,sb,inv,own,h,limit:lim,notifications,links});
+  const clientNotifications=createClientNotifications({env,sb,inv,links,fetchImpl});app.locals.clientNotifications=clientNotifications;
+  let clientReadiness={until:0,ready:false};
+  async function clientWhatsAppReady(){if(!clientNotifications.config.configured||!clientNotifications.config.publicUrl)return false;if(clientReadiness.until>Date.now())return clientReadiness.ready;const status=await clientNotifications.status();clientReadiness={until:Date.now()+10000,ready:!!status.queueReady};return clientReadiness.ready}
+  mountOrders(app,{env,sb,inv,own,h,limit:lim,notifications,clientNotifications,clientWhatsAppReady,links});
   mountAccounts(app,{env,base,key,sb,fetchImpl,limit:lim});
-  app.get("/api/config",h(async(req,res)=>res.json({orderMode:'manual',paymentsReady:false,rsvpDetailsReady:await rsvpDetailsReady()})));
+  app.get("/api/config",h(async(req,res)=>res.json({orderMode:'manual',paymentsReady:false,rsvpDetailsReady:await rsvpDetailsReady(),clientNotifications:{whatsapp:await clientWhatsAppReady()}})));
   app.get("/health",(req,res)=>res.json({status:"ok"}));
   app.get('/api/inv/:id/link',h(async(req,res)=>{const i=await own(req,res);if(!i)return;res.json({path:await links.path(i.id)})}));
   app.post('/api/inv/:id/link',lim('invitation-link',30,60000),h(async(req,res)=>{
@@ -229,5 +233,5 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
   });return app;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  const port=Number(process.env.PORT)||3000,app=createApp();app.listen(port,()=>console.log(`Готово: http://localhost:${port}`));app.locals.orderNotifications.start();
+  const port=Number(process.env.PORT)||3000,app=createApp();app.listen(port,()=>console.log(`Готово: http://localhost:${port}`));app.locals.orderNotifications.start();app.locals.clientNotifications.start();
 }

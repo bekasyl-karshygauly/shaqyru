@@ -1,12 +1,14 @@
 import crypto from 'node:crypto';
 import {createApp} from '../server.js';
-export function workflowFixture(){
+export function workflowFixture({env={}}={}){
   const tables={shq_invitations:[],shq_guests:[],shq_payments:[],shq_order_notifications:[],shq_reviews:[],shq_services:[['urgent','Срочное изготовление','Жедел дайындау',1500],['text','Помощь с текстом','Мәтінмен көмек',1000],['photo','Обработка фотографий','Фотосуреттерді өңдеу',2000]].map(([id,name_ru,name_kz,price])=>({id,name_ru,name_kz,price,enabled:true,version:crypto.randomUUID()}))};
   const value=(row,key)=>key.split(/->>?/).reduce((v,k)=>v?.[k],row);
   tables.shq_invitation_slugs=[];
+  tables.shq_client_notifications=[];
   const fetchImpl=async(url,options={})=>{
     const u=new URL(url),name=u.pathname.split('/').at(-1),body=options.body?JSON.parse(options.body):null;
     if(name==='shq_claim_order_notifications')return Response.json([]);
+    if(name==='shq_claim_client_notifications')return Response.json([]);
     if(name==='shq_allocate_invitation_slug'){
       if(!tables.shq_invitations.some(i=>i.id===body.p_inv))return Response.json({error:'missing'},{status:404});
       let row=tables.shq_invitation_slugs.find(i=>i.inv===body.p_inv);
@@ -26,6 +28,6 @@ export function workflowFixture(){
     const select=u.searchParams.get('select');if(select&&select!=='*')result=result.map(row=>Object.fromEntries(select.split(',').map(part=>{const split=part.indexOf(':'),alias=split<0?part:part.slice(0,split),path=split<0?part:part.slice(split+1);return [alias,value(row,path)]})));
     return Response.json(structuredClone(result));
   };
-  const app=createApp({env:{SUPABASE_URL:'https://db.test',SUPABASE_SERVICE_KEY:'sb_secret_test',ADMIN_KEY:'test-admin',PUBLIC_URL:'https://invite.example'},fetchImpl});
+  const app=createApp({env:{SUPABASE_URL:'https://db.test',SUPABASE_SERVICE_KEY:'sb_secret_test',ADMIN_KEY:'test-admin',PUBLIC_URL:'https://invite.example',...env},fetchImpl});
   return {app,tables};
 }
