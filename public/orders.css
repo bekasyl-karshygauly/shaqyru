@@ -14,3 +14,4 @@
 #admin-publication button:disabled{cursor:wait;opacity:.65}
 @media(max-width:600px){#admin-publication{padding:12px}#admin-publication .order-actions>*{width:100%;text-align:center;justify-content:center}#admin-publication #admin-publish{min-width:0}}
 #admin-publication #admin-publish[aria-busy="false"]:disabled{cursor:not-allowed}
+#admin-publication-hint.publication-blocked{font-weight:600;color:#8b3328;border-left:3px solid var(--ac);padding:10px 12px;background:var(--soft)}#admin-publication-next{min-height:44px;max-width:100%;white-space:normal;margin-bottom:12px}
