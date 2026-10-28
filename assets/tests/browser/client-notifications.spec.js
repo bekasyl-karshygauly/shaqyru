@@ -46,6 +46,18 @@ async function openOrder(page,{existing=false,lang='ru'}={}){await page.goto('/c
 async function login(page){await page.goto('/admin#order='+id);await page.locator('#k').fill('test-admin');await page.locator('#ld').click();await expect(page.locator('#admin-detail')).toBeVisible()}
 test.beforeEach(async({page})=>{await page.emulateMedia({reducedMotion:'reduce'})});
 
+test('Customer gets the guest link inside the already open order dialog after organizer publication',async({page,context})=>{
+  const state=await fixture(context,{existing:true});await seed(context);
+  await context.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>window.__orderCopiedLink=value}}));
+  await page.setViewportSize({width:390,height:844});await openOrder(page,{existing:true});const delivery=page.locator('#order-guest-delivery');await expect(delivery).toBeHidden();
+  state.order={...state.order,status:'published',publishedAt:'2026-10-28T20:00:00Z'};state.version='published-version';
+  await page.locator('#order-refresh').click();await expect(page.locator('#order-dialog')).toBeVisible();await expect(delivery).toBeVisible();
+  const url=new URL('/arman-aigerim',page.url()).href;await expect(delivery.locator('[data-delivery-url]')).toHaveValue(url);
+  await delivery.locator('[data-delivery-copy]').click();expect(await page.evaluate(()=>window.__orderCopiedLink)).toBe(url);
+  for(const name of ['whatsapp','telegram']){const href=await delivery.locator('[data-delivery-'+name+']').getAttribute('href');expect(href).not.toContain(ownerToken);expect(href).not.toMatch(/\/admin|\/create/)}
+  await expect(delivery.locator('[data-delivery-open]')).toHaveAttribute('href',url);await delivery.scrollIntoViewIfNeeded();await page.screenshot({path:'preview-customer-published-link.png'});
+});
+
 test('Disconnected WhatsApp is unchecked and disabled; the customer can still submit an order',async({page,context})=>{
   const state=await fixture(context);await openOrder(page);const checkbox=page.locator('#order-whatsapp-consent');
   await expect(checkbox).not.toBeChecked();await expect(checkbox).toBeDisabled();await expect(page.locator('#order-notification-note')).toContainText('пока не подключены');
