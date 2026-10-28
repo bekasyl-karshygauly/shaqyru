@@ -95,6 +95,7 @@ test('Administrator must provide a customer-facing rejection reason before savin
 
 test('Manual WhatsApp status opens only a customer compose URL and adds a clean public link after publication',async({page,context})=>{
   const state=await fixture(context,{existing:true,guestPath:'https://untrusted.example/steal?t='+ownerToken});await login(page);const link=page.locator('#admin-client-whatsapp');
+  const icon=await link.locator('svg').boundingBox();expect(icon.width).toBeLessThanOrEqual(24);expect(icon.height).toBeLessThanOrEqual(24);
   let href=new URL(await link.getAttribute('href')),message=href.searchParams.get('text');expect(href.origin+href.pathname).toBe('https://wa.me/77001234567');expect(message).toContain('Заявка');expect(message).not.toMatch(/https?:|\/admin|\/create/);expect(message).not.toContain(ownerToken);
   state.order={...state.order,status:'published',publishedAt:'2026-10-28T09:00:00Z'};await page.locator('#admin-detail-refresh').click();await expect(page.locator('#admin-client-status-summary')).toContainText('опубликовано');
   href=new URL(await link.getAttribute('href'));message=href.searchParams.get('text');expect(message).toContain(new URL('/i/'+id,page.url()).href);expect(message).not.toContain('untrusted.example');expect(message).not.toContain(ownerToken);expect(message).not.toMatch(/\/admin|\/create|private-owner/);
