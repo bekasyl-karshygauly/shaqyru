@@ -82,7 +82,8 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         gsap.removeEventListener('matchMedia',idleWhenReduced);gsap.addEventListener('matchMedia',idleWhenReduced);
       }
       const animations=[],cleanups=[],wrappers=[];
-      let root=null,runway=null,pin=null,openingTrigger=null,refreshFrame=0,refreshWanted=false,alive=true,materials=null;
+      let root=null,runway=null,pin=null,openingTrigger=null,refreshFrame=0,refreshWanted=false,alive=true,materials=null,advancing=false,advanceTimer=0;
+      const stopAdvance=()=>{advancing=false;clearTimeout(advanceTimer);advanceTimer=0};
       let seal=null,motionSwitch=null,flap=null,rootHidden=null,flapLayer=null,rootProgress='';
       const originalClasses=card.className;
       const html=document.documentElement,ownsNativeClass=!html.classList.contains('invitation-scroll-native');
@@ -119,8 +120,12 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
           if(fade)uncoverAt=Math.max(0,Number(fade.effect.getTiming().delay)||0);
           seal=root.querySelector('.seal');seal.disabled=false;
           motionSwitch=root.querySelector('.scene-motion');flap=root.querySelector('.efl');
-          const advance=()=>{onActivate();window.scrollTo({top:openingTrigger?.end||0,behavior:'smooth'})};
-          const skip=()=>{scrollImmediately(openingTrigger?.end||0);ST.update();host.focus({preventScroll:true})};
+          const advance=()=>{
+            onActivate();stopAdvance();advancing=true;
+            advanceTimer=setTimeout(()=>{stopAdvance();if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)},1600);
+            window.scrollTo({top:openingTrigger?.end||0,behavior:'smooth'});
+          };
+          const skip=()=>{stopAdvance();scrollImmediately(openingTrigger?.end||0);ST.update();host.focus({preventScroll:true})};
           seal.onclick=advance;root.querySelector('.intro-skip').onclick=skip;
           if(motionSwitch)motionSwitch.onchange=()=>{if(!motionSwitch.checked)skip()};
           const escape=e=>{if(e.key==='Escape'&&!root.inert){e.preventDefault();skip()}};
@@ -149,6 +154,7 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         if(!root)return;
         rootTracks.seek(clock.opening);
         const p=clamp(clock.opening/rootTracks.duration),hidden=p>=.999;
+        if(hidden&&!ST.isRefreshing)stopAdvance();
         const progress=p.toFixed(5);if(progress!==rootProgress){root.dataset.progress=progress;rootProgress=progress}
         if(hidden!==rootHidden){
           rootHidden=hidden;root.inert=hidden;host.inert=!hidden;
@@ -171,11 +177,13 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         layoutViewport={width,height};
       };
       const afterRefresh=()=>{
-        if(resizeProgress===null||!alive||!openingTrigger)return;
-        const progress=resizeProgress;resizeProgress=null;
+        if(!alive||!openingTrigger)return;
         // WebKit applies the old absolute scroll offset to the new, shorter
         // landscape runway. Preserve the held opening frame after remeasure.
-        scrollImmediately(openingTrigger.start+(openingTrigger.end-openingTrigger.start)*progress);ST.update();
+        if(resizeProgress!==null){const progress=resizeProgress;resizeProgress=null;scrollImmediately(openingTrigger.start+(openingTrigger.end-openingTrigger.start)*progress);ST.update()}
+        // A late font/image refresh can cancel a smooth scroll before its
+        // first scroll event. Resume the explicit Open action after remeasure.
+        if(advancing)window.scrollTo({top:openingTrigger.end,behavior:'smooth'});
       };
       ST.addEventListener('refreshInit',beforeRefresh);ST.addEventListener('refresh',afterRefresh);
       cleanups.push(()=>{ST.removeEventListener('refreshInit',beforeRefresh);ST.removeEventListener('refresh',afterRefresh)});
@@ -231,10 +239,11 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       if(atmosphere)depth.fromTo(atmosphere,{y:0},{y:-28,duration:1},0);
       // Late image/font/layout changes must not remeasure and reset timelines
       // in the middle of an inertial touch scroll. Coalesce them at scrollEnd.
-      const flushRefresh=()=>{refreshFrame=0;if(!alive||!refreshWanted||ST.isScrolling())return;refreshWanted=false;ST.refresh()};
+      const flushRefresh=()=>{refreshFrame=0;if(!alive||!refreshWanted||advancing||ST.isScrolling())return;refreshWanted=false;ST.refresh()};
       const refresh=()=>{refreshWanted=true;if(!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
-      const scrollEnded=()=>{if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
+      const scrollEnded=()=>{stopAdvance();if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
       ST.addEventListener('scrollEnd',scrollEnded);
+      window.addEventListener('wheel',stopAdvance,{passive:true});window.addEventListener('touchstart',stopAdvance,{passive:true});
       let dimensions=null;
       const observer=new ResizeObserver(entries=>{
         const rect=entries[0].contentRect,key=`${Math.round(rect.width*2)}:${Math.round(rect.height*2)}`;
@@ -247,11 +256,12 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       // keyframes. It does not own a timeline, a ScrollTrigger or DOM transforms.
       materials=mountInvitationWebGL({host,card,state,openingRoot:root});
       lastProgress=null;sync();ST.refresh();ST.update();
-      active={replay(){scrollImmediately(0);ST.update();seal?.focus({preventScroll:true})}};
+      active={replay(){stopAdvance();scrollImmediately(0);ST.update();seal?.focus({preventScroll:true})}};
       return ()=>{
-        alive=false;active=null;materials?.destroy();observer.disconnect();cancelAnimationFrame(refreshFrame);host.inert=false;
+        alive=false;stopAdvance();active=null;materials?.destroy();observer.disconnect();cancelAnimationFrame(refreshFrame);host.inert=false;
         host.removeEventListener('load',refresh,true);window.removeEventListener('afterprint',refresh);
         ST.removeEventListener('scrollEnd',scrollEnded);
+        window.removeEventListener('wheel',stopAdvance);window.removeEventListener('touchstart',stopAdvance);
         if(ownsNativeClass)html.classList.remove('invitation-scroll-native');
         for(const cleanup of cleanups)cleanup();for(const a of animations)a.destroy();
         particles?.remove();disposeOpening();card.className=originalClasses;

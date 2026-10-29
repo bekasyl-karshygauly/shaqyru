@@ -10,4 +10,6 @@ Only animated 3D ancestors are sampled for normals each frame; static/2D ancesto
 
 While an opaque opening covers the page, hidden ambient card and background tracks retain their logical scroll time without repeatedly seeking invisible layers. They catch up to the exact clock at the existing fade. Forward/reverse gestures and held intermediate positions remain scroll-driven. Compositing hints are scoped to the existing opening surfaces and reveal blocks; the parallax length property no longer inherits through their descendants.
 
+The explicit Open button survives a late geometry refresh before the native smooth scroll starts. Its pending intent is resumed after remeasure, without adding an animation clock. User wheel/touch input, skip, replay, completion and cleanup clear this intent; a bounded watchdog releases it if the browser does not start scrolling.
+
 Local browser evidence and limitations are recorded in `.design/reports/browser-frame-verification.md`. GitHub Actions repeats the same engine checks in Chromium, WebKit and Firefox on Linux using fictional records. The suite uses no real customer order changes or outgoing messages.

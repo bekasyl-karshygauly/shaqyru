@@ -94,6 +94,13 @@ test('uncovered ambient particles resume at the exact clock and reverse after re
   expect(errors).toEqual([]);
 });
 
+test('Open button continues smoothly through a pending geometry refresh',async({page})=>{
+  const errors=await open(page,'mosaic');
+  await page.evaluate(()=>{const seal=document.querySelector('.intro .seal'),advance=seal.onclick;seal.onclick=event=>{requestAnimationFrame(()=>ScrollTrigger.refresh());advance(event)}});
+  await page.locator('.intro .seal').click();await expect(page.locator('.intro')).toBeHidden();
+  await seek(page,.3);await expect(page.locator('.intro')).toBeVisible();expect(errors).toEqual([]);
+});
+
 test('reduced motion, restoration and replay release the old worker',async({page})=>{
   const errors=await open(page,'bloom');await expect(page.locator('[data-webgl-state="ready"]')).toHaveCount(1);
   await seek(page,.5);await page.emulateMedia({reducedMotion:'reduce'});await expect(page.locator('.intro')).toHaveCount(0);
