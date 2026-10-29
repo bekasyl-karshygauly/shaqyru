@@ -82,8 +82,12 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         gsap.removeEventListener('matchMedia',idleWhenReduced);gsap.addEventListener('matchMedia',idleWhenReduced);
       }
       const animations=[],cleanups=[],wrappers=[];
-      let root=null,runway=null,pin=null,openingTrigger=null,refreshFrame=0,refreshWanted=false,alive=true,materials=null,advancing=false,advanceTimer=0;
-      const stopAdvance=()=>{advancing=false;clearTimeout(advanceTimer);advanceTimer=0};
+      let root=null,runway=null,pin=null,openingTrigger=null,refreshFrame=0,refreshWanted=false,alive=true,materials=null,advancing=false,advanceTween=null;
+      const advanceClock={progress:0};
+      const stopAdvance=()=>{advancing=false;advanceTween?.kill();advanceTween=null;document.documentElement.classList.remove('invitation-opening-advance')};
+      // The button moves the native scroll position over a deliberate duration.
+      // Existing ScrollTriggers still own every visual clock, including shaders.
+      const seekAdvance=()=>{if(!advancing||!openingTrigger)return;window.scrollTo({top:openingTrigger.start+(openingTrigger.end-openingTrigger.start)*advanceClock.progress,behavior:'auto'});ST.update()};
       let seal=null,motionSwitch=null,flap=null,rootHidden=null,flapLayer=null,rootProgress='';
       const originalClasses=card.className;
       const html=document.documentElement,ownsNativeClass=!html.classList.contains('invitation-scroll-native');
@@ -121,9 +125,11 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
           seal=root.querySelector('.seal');seal.disabled=false;
           motionSwitch=root.querySelector('.scene-motion');flap=root.querySelector('.efl');
           const advance=()=>{
+            if(!openingTrigger)return;
             onActivate();stopAdvance();advancing=true;
-            advanceTimer=setTimeout(()=>{stopAdvance();if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)},1600);
-            window.scrollTo({top:openingTrigger?.end||0,behavior:'smooth'});
+            advanceClock.progress=clamp((window.scrollY-openingTrigger.start)/Math.max(1,openingTrigger.end-openingTrigger.start));
+            html.classList.add('invitation-opening-advance');
+            advanceTween=gsap.to(advanceClock,{progress:1,duration:Math.max(.35,2.4*(1-advanceClock.progress)),ease:'power1.inOut',onUpdate:seekAdvance,onComplete:()=>{stopAdvance();if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)}});
           };
           const skip=()=>{stopAdvance();scrollImmediately(openingTrigger?.end||0);ST.update();host.focus({preventScroll:true})};
           seal.onclick=advance;root.querySelector('.intro-skip').onclick=skip;
@@ -154,7 +160,6 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         if(!root)return;
         rootTracks.seek(clock.opening);
         const p=clamp(clock.opening/rootTracks.duration),hidden=p>=.999;
-        if(hidden&&!ST.isRefreshing)stopAdvance();
         const progress=p.toFixed(5);if(progress!==rootProgress){root.dataset.progress=progress;rootProgress=progress}
         if(hidden!==rootHidden){
           rootHidden=hidden;root.inert=hidden;host.inert=!hidden;
@@ -164,7 +169,7 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         }
         const layer=p<.35?'3':'0';if(flap&&layer!==flapLayer){flap.style.zIndex=layer;flapLayer=layer}
       };
-      const distance=()=>Math.round(Math.max(540,document.documentElement.clientHeight*1.25));
+      const distance=()=>Math.round(Math.max(864,document.documentElement.clientHeight*2));
       const sizeRunway=()=>{if(runway)runway.style.height=`${card.offsetHeight+distance()}px`};
       sizeRunway();
       let layoutViewport={width:document.documentElement.clientWidth,height:document.documentElement.clientHeight},resizeProgress=null;
@@ -181,9 +186,9 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         // WebKit applies the old absolute scroll offset to the new, shorter
         // landscape runway. Preserve the held opening frame after remeasure.
         if(resizeProgress!==null){const progress=resizeProgress;resizeProgress=null;scrollImmediately(openingTrigger.start+(openingTrigger.end-openingTrigger.start)*progress);ST.update()}
-        // A late font/image refresh can cancel a smooth scroll before its
-        // first scroll event. Resume the explicit Open action after remeasure.
-        if(advancing)window.scrollTo({top:openingTrigger.end,behavior:'smooth'});
+        // The same normalized button progress survives a late remeasure.
+        // The next tick uses the new bounds without restarting or accelerating.
+        seekAdvance();
       };
       ST.addEventListener('refreshInit',beforeRefresh);ST.addEventListener('refresh',afterRefresh);
       cleanups.push(()=>{ST.removeEventListener('refreshInit',beforeRefresh);ST.removeEventListener('refresh',afterRefresh)});
@@ -241,9 +246,11 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       // in the middle of an inertial touch scroll. Coalesce them at scrollEnd.
       const flushRefresh=()=>{refreshFrame=0;if(!alive||!refreshWanted||advancing||ST.isScrolling())return;refreshWanted=false;ST.refresh()};
       const refresh=()=>{refreshWanted=true;if(!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
-      const scrollEnded=()=>{stopAdvance();if(refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
+      const scrollEnded=()=>{if(!advancing&&refreshWanted&&!refreshFrame)refreshFrame=requestAnimationFrame(flushRefresh)};
+      const interruptKey=e=>{if(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(e.key))stopAdvance()};
       ST.addEventListener('scrollEnd',scrollEnded);
       window.addEventListener('wheel',stopAdvance,{passive:true});window.addEventListener('touchstart',stopAdvance,{passive:true});
+      window.addEventListener('keydown',interruptKey);
       let dimensions=null;
       const observer=new ResizeObserver(entries=>{
         const rect=entries[0].contentRect,key=`${Math.round(rect.width*2)}:${Math.round(rect.height*2)}`;
@@ -262,6 +269,7 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         host.removeEventListener('load',refresh,true);window.removeEventListener('afterprint',refresh);
         ST.removeEventListener('scrollEnd',scrollEnded);
         window.removeEventListener('wheel',stopAdvance);window.removeEventListener('touchstart',stopAdvance);
+        window.removeEventListener('keydown',interruptKey);
         if(ownsNativeClass)html.classList.remove('invitation-scroll-native');
         for(const cleanup of cleanups)cleanup();for(const a of animations)a.destroy();
         particles?.remove();disposeOpening();card.className=originalClasses;

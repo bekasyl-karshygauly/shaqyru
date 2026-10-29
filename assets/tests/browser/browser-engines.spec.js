@@ -96,12 +96,36 @@ test('uncovered ambient particles resume at the exact clock and reverse after re
 
 test('Open button continues smoothly through a pending geometry refresh',async({page})=>{
   const errors=await open(page,'mosaic');
-  await page.evaluate(()=>{const seal=document.querySelector('.intro .seal'),advance=seal.onclick;seal.onclick=event=>{requestAnimationFrame(()=>ScrollTrigger.refresh());advance(event)}});
+  await page.evaluate(()=>{const seal=document.querySelector('.intro .seal'),advance=seal.onclick;seal.onclick=event=>{
+    window.__openStarted=performance.now();
+    const observer=new MutationObserver(()=>{if(document.querySelector('.intro')?.getAttribute('aria-hidden')==='true'){window.__openElapsed=performance.now()-window.__openStarted;observer.disconnect()}});
+    observer.observe(document.querySelector('.intro'),{attributes:true,attributeFilter:['aria-hidden']});
+    requestAnimationFrame(()=>ScrollTrigger.refresh());advance(event);
+  }});
   await page.locator('.intro .seal').click();await expect(page.locator('.intro')).toBeHidden();
-  // The overlay finishes at 88% of the runway; let the native button scroll
-  // finish its remaining pixels before testing an exact programmatic seek.
+  expect(await page.evaluate(()=>window.__openElapsed)).toBeGreaterThan(1600);
+  // The overlay finishes at 88% of the runway; let the button finish moving
+  // the native scroll position before testing an exact programmatic seek.
+  await expect(page.locator('html')).not.toHaveClass(/invitation-opening-advance/);
   await expect.poll(()=>page.evaluate(()=>!ScrollTrigger.isScrolling())).toBe(true);
   await seek(page,.3);await expect(page.locator('.intro')).toBeVisible();expect(errors).toEqual([]);
+});
+
+test('button opening yields to user input and skip without drifting',async({page})=>{
+  const errors=await open(page,'env');
+  expect(await page.evaluate(()=>ScrollTrigger.getById('invitation-opening').end)).toBeGreaterThanOrEqual(1600);
+  await page.locator('.intro .seal').click();
+  await expect.poll(()=>page.evaluate(()=>Number(document.querySelector('.intro').dataset.progress))).toBeGreaterThan(.12);
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('html')).not.toHaveClass(/invitation-opening-advance/);
+  await expect.poll(()=>page.evaluate(()=>!ScrollTrigger.isScrolling())).toBe(true);
+  const held=await frame(page,'.intro .efl');await page.waitForTimeout(300);
+  expect(await frame(page,'.intro .efl')).toEqual(held);
+  await seek(page,0);await page.locator('.intro .seal').click();
+  await expect(page.locator('html')).toHaveClass(/invitation-opening-advance/);
+  await page.keyboard.press('Escape');await expect(page.locator('.intro')).toBeHidden();
+  await expect(page.locator('html')).not.toHaveClass(/invitation-opening-advance/);
+  expect(errors).toEqual([]);
 });
 
 test('reduced motion, restoration and replay release the old worker',async({page})=>{

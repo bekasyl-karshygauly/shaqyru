@@ -1,6 +1,7 @@
 /* Native document scrolling: no wheel/touch interception or nested scroller. */
 @property --scroll-depth{syntax:'<length>';inherits:false;initial-value:0px}
 html.invitation-scroll-native{overflow-anchor:none}
+html.invitation-scroll-native.invitation-opening-advance{scroll-behavior:auto!important}
 .invitation-scroll-runway{position:relative;flex:none;width:100%}
 .invitation-scroll-pin{position:sticky;top:12px;width:100%}
 .scroll-section-track{position:relative;width:100%;min-width:0}
