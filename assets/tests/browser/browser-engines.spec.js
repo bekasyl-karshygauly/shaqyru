@@ -98,6 +98,9 @@ test('Open button continues smoothly through a pending geometry refresh',async({
   const errors=await open(page,'mosaic');
   await page.evaluate(()=>{const seal=document.querySelector('.intro .seal'),advance=seal.onclick;seal.onclick=event=>{requestAnimationFrame(()=>ScrollTrigger.refresh());advance(event)}});
   await page.locator('.intro .seal').click();await expect(page.locator('.intro')).toBeHidden();
+  // The overlay finishes at 88% of the runway; let the native button scroll
+  // finish its remaining pixels before testing an exact programmatic seek.
+  await expect.poll(()=>page.evaluate(()=>!ScrollTrigger.isScrolling())).toBe(true);
   await seek(page,.3);await expect(page.locator('.intro')).toBeVisible();expect(errors).toEqual([]);
 });
 
