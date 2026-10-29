@@ -66,6 +66,24 @@ test('blocked module worker uses the existing renderer and keeps all opening tra
   expect(errors).toEqual([]);
 });
 
+test('material tile crops stay isolated across presentation backends',async({page})=>{
+  await page.route('**/__material-probe',r=>r.fulfill({body:'<!doctype html><title>Material crop check</title>',contentType:'text/html'}));await page.goto('/__material-probe');
+  const pixels=await page.evaluate(async()=>{
+    const {cropMaterialTiles}=await import('/invitation-material-tiles.js');
+    const offscreen=typeof OffscreenCanvas!=='undefined',source=offscreen?new OffscreenCanvas(16,8):document.createElement('canvas');source.width=16;source.height=8;const context=source.getContext('2d');
+    context.fillStyle='#ff0000';context.fillRect(0,0,8,8);context.fillStyle='#00ff00';context.fillRect(8,0,8,8);
+    if(!offscreen)return [0,8].map(x=>{const canvas=document.createElement('canvas');canvas.width=8;canvas.height=8;const read=canvas.getContext('2d');read.drawImage(source,x,0,8,8,0,0,8,8);return [...read.getImageData(4,4,1,1).data]});
+    const image=source.transferToImageBitmap(),results=await cropMaterialTiles(image,[{index:0,x:0,y:0,width:8,height:8},{index:1,x:8,y:0,width:8,height:8}],new Map());
+    image.close();return results.map(result=>{
+      if(result.status!=='fulfilled')throw result.reason;
+      const canvas=document.createElement('canvas');canvas.width=8;canvas.height=8;const bitmap=canvas.getContext('bitmaprenderer');
+      if(bitmap)bitmap.transferFromImageBitmap(result.value.image);else{canvas.getContext('2d').drawImage(result.value.image,0,0);result.value.image.close()}
+      const probe=document.createElement('canvas');probe.width=8;probe.height=8;const read=probe.getContext('2d');read.drawImage(canvas,0,0);return [...read.getImageData(4,4,1,1).data];
+    });
+  });
+  expect(pixels).toEqual([[255,0,0,255],[0,255,0,255]]);
+});
+
 test('uncovered ambient particles resume at the exact clock and reverse after resize',async({page})=>{
   const errors=await open(page,'env');await seek(page,.2);
   const times=()=>page.locator('body>.living-scene i').evaluateAll(nodes=>nodes.map(el=>el.getAnimations().map(a=>Math.round(a.currentTime))));

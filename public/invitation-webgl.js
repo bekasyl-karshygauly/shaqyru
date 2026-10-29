@@ -1,5 +1,6 @@
 import {invitationVertexShader,invitationFragmentShader} from './invitation-shaders.js';
 import {startMaterialWorker} from './invitation-material-bridge.js';
+import {cropMaterialTiles} from './invitation-material-tiles.js';
 
 const clamp=value=>Number.isFinite(Number(value))?Math.max(0,Math.min(1,Number(value))):0;
 const MAX_SURFACES=16;
@@ -22,6 +23,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   let hostInView=true,lastPaintDuration=0;
   let resetRasterReferences=false;
   const transformSources=new Map();
+  const tileCache=new Map();
   const observedSurfaces=new Map(),viewport={width:window.innerWidth,height:window.innerHeight};
   const latest={opening:openingRoot?0:1,card:0,depth:0,covered:!!openingRoot};
   const root=card?.matches?.('.inv')?card:card?.querySelector?.('.inv');
@@ -260,12 +262,8 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
         transfer.image=image;
         // Crop GPU-backed image handles, then transfer ownership to the DOM
         // canvases. This avoids a synchronous WebGL→CPU readback per flap.
-        const results=await Promise.allSettled(bitmapSurfaces.map(async surface=>{
-          const cropped=await createImageBitmap(image,surface.x,surface.y,surface.width,surface.height);
-          if(destroyed||paused()||version!==generation){cropped.close();return null}
-          return {surface,image:cropped};
-        }));
-        tiles=results.filter(result=>result.status==='fulfilled'&&result.value).map(result=>result.value);transfer.tiles=tiles;
+        const results=await cropMaterialTiles(image,bitmapSurfaces,tileCache);
+        tiles=results.filter(result=>result.status==='fulfilled'&&result.value).map(result=>({...result.value,surface:bitmapSurfaces.find(s=>s.index===result.value.index)}));transfer.tiles=tiles;
         if(destroyed||paused()||version!==generation)return;
         if(results.some(result=>result.status==='rejected'))throw Error('MATERIAL_TRANSFER_FAILED');
         for(const tile of tiles){tile.surface.context.transferFromImageBitmap(tile.image);tile.image=null}
@@ -313,7 +311,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
         }
         surface.canvas.width=surface.canvas.height=1;
       }
-      surfaces=[];observedSurfaces.clear();transformSources.clear();transfers.clear();geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();
+      surfaces=[];observedSurfaces.clear();transformSources.clear();for(const tile of tileCache.values())tile.canvas.width=tile.canvas.height=1;tileCache.clear();transfers.clear();geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();
       if(atlas)atlas.width=atlas.height=1;
       if(compatibleAtlas)compatibleAtlas.width=compatibleAtlas.height=1;
       if(host)for(const key of ['webglState','webglBackend','webglOpening','webglCard','webglDepth','webglFrame','webglAtlasWidth','webglAtlasHeight','webglDrawCalls'])delete host.dataset[key];

@@ -2,9 +2,11 @@
    existing scroll clocks and surface normals; this worker owns no animation. */
 import * as THREE from './vendor/three.module.min.js';
 import {invitationVertexShader,invitationFragmentShader} from './invitation-shaders.js';
+import {cropMaterialTiles} from './invitation-material-tiles.js';
 
 let renderer,canvas,geometry,material,scene,camera,mesh,pending=null,rendering=false,epoch=0,lost=false,cancelRender=null;
 const attributes={aRect:4,aCssSize:2,aTilt:2,aMaterial:2};
+const tileCache=new Map();
 function createGeometry(){
   const plane=new THREE.PlaneGeometry(2,2),value=new THREE.InstancedBufferGeometry();value.index=plane.index;
   for(const [name,attribute]of Object.entries(plane.attributes))value.setAttribute(name,attribute);
@@ -38,7 +40,7 @@ async function drain(){
     atlas=canvas.transferToImageBitmap();
     // Cropping/ownership transfers can stall in WebKit. They never block the
     // main thread, and there is only one GPU job in flight, with latest queued.
-    const crops=Promise.allSettled(surfaces.map(async s=>({index:s.index,image:await createImageBitmap(atlas,s.x,s.y,s.width,s.height)})));
+    const crops=cropMaterialTiles(atlas,surfaces,tileCache);
     const results=await Promise.race([crops,cancelled]);
     if(!results){void crops.then(values=>{for(const value of values)if(value.status==='fulfilled')value.value.image.close()});reject(job,'cancelled');return}
     for(const result of results)if(result.status==='fulfilled')images.push(result.value);
