@@ -328,7 +328,7 @@ function hexAlpha(h,a){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5)
     for(const field of languageResume.fields||[]){const input=document.getElementById(field.id);if(input&&!input.disabled&&input.closest('.rsvp-form')){input.value=field.value;input.checked=field.checked}}
     if(languageResume.sent){rsgl.replaceChildren(E('p','rsvp-success',t.th));rsgl.setAttribute('role','status')}
   }
-  const motion=mountInvitationScroll({host:vg,card:cw,state:s,opening:!j.preview&&!languageResume&&!q.get('print'),onProgress:({ambientTime})=>ambientScene.seek(ambientTime),onActivate:()=>{if(hasMus&&!musOn)toggleMus()}});
+  const motion=mountInvitationScroll({host:vg,card:cw,state:s,opening:!j.preview&&!languageResume&&!q.get('print'),onProgress:({ambientTime,covered})=>ambientScene.seek(ambientTime,{visible:!covered}),onActivate:()=>{if(hasMus&&!musOn)toggleMus()}});
   if(q.get('embedded')==='1'){let savedScroll=0;try{savedScroll=Number(sessionStorage.getItem('shq-preview-scroll:'+location.hash.slice(1)))||0}catch{}requestAnimationFrame(()=>scrollTo(0,savedScroll))}
   if(q.get("print")&&!j.preview){setTimeout(()=>window.print(),600)}
   else if(j.preview){

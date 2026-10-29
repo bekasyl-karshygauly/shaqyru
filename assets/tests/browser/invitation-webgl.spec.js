@@ -157,6 +157,7 @@ test('Hidden tabs, print and restored pages do not leave active hidden shader sc
 test('WebGL creation failure preserves the complete invitation and does not retry forever',async({page})=>{
   await page.addInitScript(()=>{
     window.__webglAttempts=0;
+    window.Worker=undefined;
     for(const prototype of [HTMLCanvasElement.prototype,window.OffscreenCanvas?.prototype].filter(Boolean)){const original=prototype.getContext;prototype.getContext=function(kind,...args){if(/^(webgl2?|experimental-webgl)$/.test(kind)){window.__webglAttempts++;return null}return original.call(this,kind,...args)}}
   });
   await page.emulateMedia({reducedMotion:'no-preference'});const failures=[];page.on('pageerror',e=>failures.push(e.message));
@@ -181,6 +182,7 @@ test('Browsers without OffscreenCanvas keep the bounded compatible material path
 test('GPU context loss clears the overlay and restoration uses the latest scroll position',async({page})=>{
   await page.addInitScript(()=>{
     window.__webglContexts=[];
+    window.Worker=undefined;
     for(const prototype of [HTMLCanvasElement.prototype,window.OffscreenCanvas?.prototype].filter(Boolean)){const original=prototype.getContext;prototype.getContext=function(kind,...args){const value=original.call(this,kind,...args);if(/^(webgl2?|experimental-webgl)$/.test(kind)&&value&&!window.__webglContexts.includes(value))window.__webglContexts.push(value);return value}}
   });
   await page.emulateMedia({reducedMotion:'no-preference'});const failures=[];page.on('pageerror',e=>failures.push(e.message));

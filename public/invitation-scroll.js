@@ -94,7 +94,7 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         while(ornament.firstChild)inner.append(ornament.firstChild);
         ornament.append(inner);wrappers.push(()=>{while(inner.firstChild)ornament.insertBefore(inner.firstChild,inner);inner.remove()});
       }
-      let disposeOpening=()=>{},rootTracks=null;
+      let disposeOpening=()=>{},rootTracks=null,uncoverAt=0;
       if(wantOpening){
         runway=document.createElement('div');runway.className='invitation-scroll-runway';
         pin=document.createElement('div');pin.className='invitation-scroll-pin';
@@ -113,6 +113,10 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
           }
           void root.offsetWidth;scene.start();void root.offsetWidth;
           rootTracks=seekable([...root.getAnimations({subtree:true})]);animations.push(rootTracks);
+          // Hidden paper/ambient tracks need not invalidate dozens of layers
+          // behind the opaque opening. Seek their exact clock once uncovered.
+          const fade=root.getAnimations().find(a=>a.effect?.target===root&&a.effect.getKeyframes().some(f=>Number(f.opacity)===0));
+          if(fade)uncoverAt=Math.max(0,Number(fade.effect.getTiming().delay)||0);
           seal=root.querySelector('.seal');seal.disabled=false;
           motionSwitch=root.querySelector('.scene-motion');flap=root.querySelector('.efl');
           const advance=()=>{onActivate();window.scrollTo({top:openingTrigger?.end||0,behavior:'smooth'})};
@@ -131,14 +135,16 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       animations.push(cardTracks,ambientTracks);
       const clock={opening:0,card:0},ambientClock={time:0};
       let ambientDuration=1,lastProgress=null;
+      const covered=()=>!!rootTracks&&clock.opening<uncoverAt;
       const syncMaterials=()=>{
-        const value={opening:rootTracks?clamp(clock.opening/rootTracks.duration):1,card:clamp(clock.card/cardTracks.duration),depth:clamp(ambientClock.time/ambientDuration)};
-        if(lastProgress&&value.opening===lastProgress.opening&&value.card===lastProgress.card&&value.depth===lastProgress.depth&&ambientClock.time===lastProgress.ambientTime)return;
+        const value={opening:rootTracks?clamp(clock.opening/rootTracks.duration):1,card:clamp(clock.card/cardTracks.duration),depth:clamp(ambientClock.time/ambientDuration),covered:covered()};
+        if(lastProgress&&value.opening===lastProgress.opening&&value.card===lastProgress.card&&value.depth===lastProgress.depth&&value.covered===lastProgress.covered&&ambientClock.time===lastProgress.ambientTime)return;
         lastProgress={...value,ambientTime:ambientClock.time};
         materials?.update(value);onProgress(lastProgress);
       };
       const sync=()=>{
         cardTracks.seek(clock.card);
+        if(!covered())ambientTracks.seek(ambientClock.time);
         syncMaterials();
         if(!root)return;
         rootTracks.seek(clock.opening);
@@ -155,6 +161,24 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
       const distance=()=>Math.round(Math.max(540,document.documentElement.clientHeight*1.25));
       const sizeRunway=()=>{if(runway)runway.style.height=`${card.offsetHeight+distance()}px`};
       sizeRunway();
+      let layoutViewport={width:document.documentElement.clientWidth,height:document.documentElement.clientHeight},resizeProgress=null;
+      const beforeRefresh=()=>{
+        const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight,ratio=height/layoutViewport.height;
+        // GSAP's media refresh can already have reverted trigger.progress to
+        // zero here, while the native scroll offset is still the user's frame.
+        const progress=openingTrigger?clamp((window.scrollY-openingTrigger.start)/Math.max(1,openingTrigger.end-openingTrigger.start)):1;
+        if(root&&openingTrigger&&progress<1&&(width!==layoutViewport.width||ratio<.75||ratio>1.25))resizeProgress=progress;
+        layoutViewport={width,height};
+      };
+      const afterRefresh=()=>{
+        if(resizeProgress===null||!alive||!openingTrigger)return;
+        const progress=resizeProgress;resizeProgress=null;
+        // WebKit applies the old absolute scroll offset to the new, shorter
+        // landscape runway. Preserve the held opening frame after remeasure.
+        scrollImmediately(openingTrigger.start+(openingTrigger.end-openingTrigger.start)*progress);ST.update();
+      };
+      ST.addEventListener('refreshInit',beforeRefresh);ST.addEventListener('refresh',afterRefresh);
+      cleanups.push(()=>{ST.removeEventListener('refreshInit',beforeRefresh);ST.removeEventListener('refresh',afterRefresh)});
       // A pixel of native scrolling advances decoration time by only 3ms. The
       // previous fixed 30s clock raced through petals on short phone pages.
       ambientDuration=Math.max(1,(host.getBoundingClientRect().bottom+window.scrollY-document.documentElement.clientHeight)*3);
@@ -173,10 +197,10 @@ export function mountInvitationScroll({host,card,state,opening=true,onActivate=(
         onRefresh:self=>{
           const duration=Math.max(1,(self.end-self.start)*3);
           if(duration!==ambientDuration){ambientDuration=duration;self.animation?.invalidate()}
-          refreshTracks(self,()=>{ambientTracks.seek(ambientClock.time);syncMaterials()});
+          refreshTracks(self,()=>{if(!covered())ambientTracks.seek(ambientClock.time);syncMaterials()});
         }
       }});
-      depth.fromTo(ambientClock,{time:0},{time:()=>ambientDuration,duration:1,onUpdate:()=>{ambientTracks.seek(ambientClock.time);syncMaterials()}},0);
+      depth.fromTo(ambientClock,{time:0},{time:()=>ambientDuration,duration:1,onUpdate:()=>{if(!covered())ambientTracks.seek(ambientClock.time);syncMaterials()}},0);
       // Individual translate composes with the existing transform keyframes.
       for(const [selector,pixels] of [['.bgp',18],['.rg,.or',-10]]){
         const nodes=card.querySelectorAll(selector);nodes.forEach(n=>n.classList.add('scroll-depth'));

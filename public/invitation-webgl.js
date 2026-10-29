@@ -1,4 +1,5 @@
 import {invitationVertexShader,invitationFragmentShader} from './invitation-shaders.js';
+import {startMaterialWorker} from './invitation-material-bridge.js';
 
 const clamp=value=>Number.isFinite(Number(value))?Math.max(0,Math.min(1,Number(value))):0;
 const MAX_SURFACES=16;
@@ -12,7 +13,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   currentController?.destroy();
   let destroyed=false,ready=false,contextLost=false,printing=false,failed=false,frame=0;
   let dirty=true,needsLayout=true,renderCount=0,renderer=null;
-  let material=null,geometry=null,scene=null,camera=null,mesh=null,three=null,atlas=null;
+  let material=null,geometry=null,scene=null,camera=null,mesh=null,three=null,atlas=null,remote=null,createRenderer=null;
   let compatibleAtlas=null,compatibleContext=null;
   let atlasSize={width:0,height:0},surfaces=[],resizeObserver=null,intersectionObserver=null;
   const rendererSize={width:0,height:0};
@@ -20,8 +21,9 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   const transfers=new Set();
   let hostInView=true,lastPaintDuration=0;
   let resetRasterReferences=false;
+  const transformSources=new Map();
   const observedSurfaces=new Map(),viewport={width:window.innerWidth,height:window.innerHeight};
-  const latest={opening:openingRoot?0:1,card:0,depth:0};
+  const latest={opening:openingRoot?0:1,card:0,depth:0,covered:!!openingRoot};
   const root=card?.matches?.('.inv')?card:card?.querySelector?.('.inv');
   const media=window.matchMedia('(prefers-reduced-motion: reduce)');
   const printMedia=window.matchMedia('print');printing=printMedia.matches;
@@ -31,7 +33,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   const listen=(target,event,handler,options)=>{target.addEventListener(event,handler,options);disposers.push(()=>target.removeEventListener(event,handler,options))};
   const cancelPending=()=>{cancelAnimationFrame(frame);frame=0};
   const invalidateTransfers=()=>{
-    generation++;painting=0;cancelPending();
+    generation++;painting=0;cancelPending();remote?.cancel();
     // Some mobile browsers leave a crop promise pending while the context or
     // page is suspended. Release its backing immediately and let a new frame
     // start on restore; the old promise can never publish over that new frame.
@@ -43,6 +45,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
     if(host){host.dataset.webglOpening=values.opening;host.dataset.webglCard=values.card;host.dataset.webglDepth=values.depth;host.dataset.webglFrame=String(renderCount)}
   };
   function visible(surface){
+    if(latest.covered&&surface.kind!=='opening')return false;
     if(surface.kind==='atmosphere')return true;
     const element=surface.element;
     if(!element.isConnected)return false;
@@ -77,7 +80,19 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
     }
     element.append(canvas);
     canvas.dataset.webglPresentation=bitmapContext?'bitmap':'2d';
-    const surface={element,canvas,context,bitmap:!!bitmapContext,kind,index,previousPosition,inView:true,x:0,y:0,width:1,height:1,cssWidth:1,cssHeight:1,referenceWidth:0,referenceHeight:0};
+    const tiltSources=[];
+    if(kind!=='atmosphere')for(let node=element,steps=0;node&&steps++<5;node=node.parentElement){
+      let source=transformSources.get(node);
+      if(!source){
+        // Only actual 3D tracks can change a paper normal. Mosaic translations,
+        // opacity and static ancestors need no computed-style read per frame.
+        const dynamic=node.getAnimations().some(a=>a.effect?.target===node&&a.effect.getKeyframes().some(f=>/matrix3d|rotate[XY]|rotate3d|perspective/.test(f.transform||'')));
+        source={node,dynamic,value:readTilt(node)};transformSources.set(node,source);
+      }
+      if(source.dynamic||source.value.x||source.value.y)tiltSources.push(source);
+      if(node===openingRoot||node===host)break;
+    }
+    const surface={element,canvas,context,bitmap:!!bitmapContext,kind,index,previousPosition,tiltSources,inView:true,x:0,y:0,width:1,height:1,cssWidth:1,cssHeight:1,referenceWidth:0,referenceHeight:0};
     surfaces.push(surface);observedSurfaces.set(element,surface);
     if(kind!=='atmosphere'){resizeObserver?.observe(element);intersectionObserver?.observe(element)}
   }
@@ -105,7 +120,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   }
   function layout(){
     needsLayout=false;
-    const small=mobile(),budget=small?800000:2000000,cap=small?448:640;
+    const small=mobile(),budget=small?360000:1400000,cap=small?320:576;
     // These canvases contain translucent light, not text or photographs. One
     // backing pixel per mobile CSS pixel keeps the original HTML sharp while
     // avoiding high-density shader work that cannot add readable detail.
@@ -133,27 +148,23 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
       renderer.setSize(result.width,result.height,false);rendererSize.width=result.width;rendererSize.height=result.height;
     }
     for(const surface of surfaces){
-      if(surface.canvas.width!==surface.width)surface.canvas.width=surface.width;
-      if(surface.canvas.height!==surface.height)surface.canvas.height=surface.height;
+      // A worker may still be preparing the replacement. Keep the previous
+      // material visible until its new bitmap is ready, including on rotation.
+      if(!remote||surface.canvas.dataset.webglFrame==='0'||!visible(surface)){if(surface.canvas.width!==surface.width)surface.canvas.width=surface.width;if(surface.canvas.height!==surface.height)surface.canvas.height=surface.height}
       surface.canvas.dataset.webglAtlas=`${result.width}x${result.height}`;
     }
     if(host){host.dataset.webglAtlasWidth=String(result.width);host.dataset.webglAtlasHeight=String(result.height)}
   }
-  function tiltFor(element,cache){
-    let x=0,y=0,current=element,steps=0;
-    while(current&&steps++<5){
-      let value=cache.get(current);
-      if(!value){
-        const transform=getComputedStyle(current).transform;
-        try{
-          const matrix=transform&&transform!=='none'?new DOMMatrixReadOnly(transform):null;
-          value=matrix?{x:matrix.m13,y:matrix.m23}:{x:0,y:0};
-        }catch{value={x:0,y:0}}
-        cache.set(current,value);
-      }
+  function readTilt(element){
+    const transform=getComputedStyle(element).transform;
+    try{const matrix=transform&&transform!=='none'?new DOMMatrixReadOnly(transform):null;return matrix?{x:matrix.m13,y:matrix.m23}:{x:0,y:0}}catch{return {x:0,y:0}}
+  }
+  function tiltFor(surface,cache){
+    let x=0,y=0;
+    for(const source of surface.tiltSources){
+      let value=source.value;
+      if(source.dynamic){value=cache.get(source.node);if(!value){value=readTilt(source.node);cache.set(source.node,value)}}
       x+=value.x;y+=value.y;
-      if(current===openingRoot||current===host)break;
-      current=current.parentElement;
     }
     return {x:Math.max(-1,Math.min(1,x)),y:Math.max(-1,Math.min(1,y))};
   }
@@ -167,16 +178,17 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
     value.instanceCount=0;return value;
   }
   function prepareInstances(active){
-    const rect=geometry.getAttribute('aRect'),size=geometry.getAttribute('aCssSize');
-    const tilt=geometry.getAttribute('aTilt'),kind=geometry.getAttribute('aMaterial'),cache=new Map();
+    const rect=geometry?.getAttribute('aRect'),size=geometry?.getAttribute('aCssSize');
+    const tilt=geometry?.getAttribute('aTilt'),kind=geometry?.getAttribute('aMaterial'),cache=new Map(),instances=[];
     for(let index=0;index<active.length;index++){
-      const surface=active[index],angle=surface.kind==='atmosphere'?{x:0,y:0}:tiltFor(surface.element,cache);
-      rect.setXYZW(index,surface.x/atlasSize.width,(atlasSize.height-surface.y-surface.height)/atlasSize.height,surface.width/atlasSize.width,surface.height/atlasSize.height);
-      size.setXY(index,surface.cssWidth,surface.cssHeight);tilt.setXY(index,angle.x,angle.y);
-      kind.setXY(index,surface.index*.713,surface.kind==='atmosphere'?2:surface.section?3:surface.kind==='opening'?1:0);
+      const surface=active[index],angle=surface.kind==='atmosphere'?{x:0,y:0}:tiltFor(surface,cache);
+      const mode=surface.kind==='atmosphere'?2:surface.section?3:surface.kind==='opening'?1:0;
+      if(remote)instances.push({index:surface.index,x:surface.x,y:surface.y,width:surface.width,height:surface.height,cssWidth:surface.cssWidth,cssHeight:surface.cssHeight,tiltX:angle.x,tiltY:angle.y,seed:surface.index*.713,mode});
+      else{rect.setXYZW(index,surface.x/atlasSize.width,(atlasSize.height-surface.y-surface.height)/atlasSize.height,surface.width/atlasSize.width,surface.height/atlasSize.height);
+        size.setXY(index,surface.cssWidth,surface.cssHeight);tilt.setXY(index,angle.x,angle.y);kind.setXY(index,surface.index*.713,mode)}
     }
-    for(const attribute of [rect,size,tilt,kind])attribute.needsUpdate=true;
-    geometry.instanceCount=active.length;
+    if(!remote){for(const attribute of [rect,size,tilt,kind])attribute.needsUpdate=true;geometry.instanceCount=active.length}
+    return instances;
   }
   function viewportResize(force=false){
     const width=window.innerWidth,height=window.innerHeight,small=mobile(),ratio=height/viewport.height;
@@ -206,9 +218,22 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
       const openingVisible=openingRoot?.isConnected&&latest.opening<.999;
       const active=hostVisible||openingVisible?surfaces.filter(visible):[];
       if(!active.length){setState('suspended');return}
+      const instances=prepareInstances(active);
+      if(remote){
+        const result=await remote.paint({id:ticket,...atlasSize,surfaces:instances,progress:snapshot});
+        tiles=result.images.map(tile=>({...tile,surface:surfaces.find(s=>s.index===tile.index)}));transfer.tiles=tiles;
+        if(destroyed||paused()||version!==generation)return;
+        for(const tile of tiles){
+          const surface=tile.surface;if(!surface)continue;
+          if(surface.canvas.width!==surface.width)surface.canvas.width=surface.width;
+          if(surface.canvas.height!==surface.height)surface.canvas.height=surface.height;
+          if(surface.bitmap){surface.context.transferFromImageBitmap(tile.image);tile.image=null}
+          else{surface.context.clearRect(0,0,surface.width,surface.height);surface.context.drawImage(tile.image,0,0);tile.image.close();tile.image=null}
+        }
+        renderer.info.render.calls=result.drawCalls;
+      }else{
       const uniforms=material.uniforms;
       uniforms.uOpening.value=latest.opening;uniforms.uCard.value=latest.card;uniforms.uDepth.value=latest.depth;
-      prepareInstances(active);
       // Every non-overlapping atlas tile is an instance of the same quad. The
       // complete paper, foil and atmosphere scene is one GPU draw, rather than
       // one renderer traversal/uniform upload/draw for every DOM flap.
@@ -245,6 +270,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
         if(results.some(result=>result.status==='rejected'))throw Error('MATERIAL_TRANSFER_FAILED');
         for(const tile of tiles){tile.surface.context.transferFromImageBitmap(tile.image);tile.image=null}
       }
+      }
       renderCount++;lastPaintDuration=performance.now()-started;metadata(snapshot);
       if(host)host.dataset.webglDrawCalls=String(renderer.info.render.calls);
       setState('ready');
@@ -258,19 +284,26 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   }
   function clearSurfaces(){for(const surface of surfaces){if(surface.bitmap)surface.context.transferFromImageBitmap(null);else surface.context.clearRect(0,0,surface.canvas.width,surface.canvas.height)}}
   function failRenderer(){
-    failed=true;ready=false;invalidateTransfers();clearSurfaces();
+    failed=true;ready=false;invalidateTransfers();remote?.destroy();clearSurfaces();
     geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();setState('fallback');
   }
   const controller={
     update(values={}){
       let changed=false;
+      if('covered'in values&&!!values.covered!==latest.covered){
+        latest.covered=!!values.covered;changed=true;
+        if(latest.covered){
+          invalidateTransfers();
+          for(const surface of surfaces)if(surface.kind!=='opening'){if(surface.bitmap)surface.context.transferFromImageBitmap(null);else surface.context.clearRect(0,0,surface.canvas.width,surface.canvas.height)}
+        }
+      }
       for(const key of ['opening','card','depth'])if(key in values){const value=clamp(values[key]);if(value!==latest[key]){latest[key]=value;changed=true}}
       if(changed)requestPaint();
     },
     refresh(){requestPaint(true)},
-    inspect(){return {state:host?.dataset.webglState||'fallback',surfaceCount:surfaces.length,atlas:{...atlasSize},renderCount,pending:Boolean(frame||painting),paintDuration:lastPaintDuration,drawCalls:renderer?.info.render.calls||0,contextLost,progress:{...latest}}},
+    inspect(){return {state:host?.dataset.webglState||'fallback',backend:remote?'worker':'main',surfaceCount:surfaces.length,atlas:{...atlasSize},renderCount,pending:Boolean(frame||painting),paintDuration:lastPaintDuration,drawCalls:renderer?.info.render.calls||0,contextLost,progress:{...latest}}},
     destroy(){
-      if(destroyed)return;destroyed=true;invalidateTransfers();resizeObserver?.disconnect();intersectionObserver?.disconnect();
+      if(destroyed)return;destroyed=true;invalidateTransfers();remote?.destroy();resizeObserver?.disconnect();intersectionObserver?.disconnect();
       for(const dispose of disposers.splice(0))dispose();
       for(const surface of surfaces){
         surface.canvas.remove();
@@ -280,10 +313,10 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
         }
         surface.canvas.width=surface.canvas.height=1;
       }
-      surfaces=[];observedSurfaces.clear();transfers.clear();geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();
+      surfaces=[];observedSurfaces.clear();transformSources.clear();transfers.clear();geometry?.dispose();material?.dispose();renderer?.dispose();renderer?.forceContextLoss();
       if(atlas)atlas.width=atlas.height=1;
       if(compatibleAtlas)compatibleAtlas.width=compatibleAtlas.height=1;
-      if(host)for(const key of ['webglState','webglOpening','webglCard','webglDepth','webglFrame','webglAtlasWidth','webglAtlasHeight','webglDrawCalls'])delete host.dataset[key];
+      if(host)for(const key of ['webglState','webglBackend','webglOpening','webglCard','webglDepth','webglFrame','webglAtlasWidth','webglAtlasHeight','webglDrawCalls'])delete host.dataset[key];
       if(currentController===controller)currentController=null;
     }
   };
@@ -292,17 +325,22 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
   setState('loading');
   // Deferring the local engine avoids allocating a renderer for reduced motion
   // and lets the already working invitation become interactive first.
-  import('./vendor/three.module.min.js').then(THREE=>{
+  Promise.resolve().then(async()=>{
     if(destroyed)return;
     if(media.matches){setState('fallback');return}
-    three=THREE;
     try{
       bitmapPipeline=typeof OffscreenCanvas!=='undefined'&&typeof OffscreenCanvas.prototype.transferToImageBitmap==='function'&&typeof ImageBitmapRenderingContext!=='undefined'&&typeof createImageBitmap==='function';
+      const rawAccent=getComputedStyle(root).getPropertyValue('--ac').trim(),accent=/^(#[a-f\d]{3,8}|rgba?\([\d.,%\s]+\))$/i.test(rawAccent)?rawAccent:'';
+      remote=await startMaterialWorker({accent,onLost(){contextLost=true;invalidateTransfers();clearSurfaces();setState('fallback')},onRestored(){if(destroyed||failed)return;contextLost=false;requestPaint(true)},onFailure(){if(!destroyed)failRenderer()}});
+      if(destroyed){remote?.destroy();return}
+      if(remote){renderer={capabilities:{maxTextureSize:remote.maxTextureSize},info:{render:{calls:0}},setSize(){},dispose(){},forceContextLoss(){}}}
+      else{
+      three=await import('./vendor/three.module.min.js');if(destroyed)return;
       atlas=bitmapPipeline?new OffscreenCanvas(1,1):document.createElement('canvas');
       const contextAttributes={alpha:true,antialias:false,depth:false,stencil:false,premultipliedAlpha:true,preserveDrawingBuffer:false,powerPreference:'low-power'};
       const context=atlas.getContext('webgl2',contextAttributes);
       if(!context){setState('fallback');return}
-      const createRenderer=()=>{const value=new three.WebGLRenderer({canvas:atlas,context,...contextAttributes});value.setPixelRatio(1);value.autoClear=false;value.toneMapping=three.NoToneMapping;value.outputColorSpace=three.SRGBColorSpace;rendererSize.width=rendererSize.height=0;return value};
+      createRenderer=()=>{const value=new three.WebGLRenderer({canvas:atlas,context,...contextAttributes});value.setPixelRatio(1);value.autoClear=false;value.toneMapping=three.NoToneMapping;value.outputColorSpace=three.SRGBColorSpace;rendererSize.width=rendererSize.height=0;return value};
       renderer=createRenderer();
       scene=new three.Scene();camera=new three.OrthographicCamera(-1,1,1,-1,0,1);geometry=createGeometry();
       const accent=getComputedStyle(root).getPropertyValue('--ac').trim(),color=new three.Color(0xd4af68);
@@ -312,6 +350,8 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
         uniforms:{uAccent:{value:color},uOpening:{value:latest.opening},uCard:{value:latest.card},uDepth:{value:latest.depth}}
       });
       mesh=new three.Mesh(geometry,material);mesh.frustumCulled=false;scene.add(mesh);
+      }
+      host.dataset.webglBackend=remote?'worker':'main';
       resizeObserver=new ResizeObserver(entries=>{
         const small=mobile();let allocate=false;
         for(const entry of entries){const surface=observedSurfaces.get(entry.target);if(surface)allocate=measureSurface(surface,small)||allocate}
@@ -332,7 +372,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
         addSurface(element,'paper',index++);surfaces[surfaces.length-1].section=true;
       }
       addSurface(document.body,'atmosphere',index);
-      listen(atlas,'webglcontextlost',event=>{event.preventDefault();contextLost=true;invalidateTransfers();clearSurfaces();setState('fallback')});
+      if(atlas){listen(atlas,'webglcontextlost',event=>{event.preventDefault();contextLost=true;invalidateTransfers();clearSurfaces();setState('fallback')});
       listen(atlas,'webglcontextrestored',()=>{
         if(destroyed||failed)return;
         try{
@@ -344,7 +384,7 @@ export function mountInvitationWebGL({host,card,state={},openingRoot=null}){
           renderer=createRenderer();geometry=createGeometry();material=restoredMaterial;mesh.geometry=geometry;mesh.material=material;
           contextLost=false;ready=true;requestPaint(true);
         }catch{failRenderer()}
-      });
+      });}
       listen(window,'resize',()=>viewportResize(),{passive:true});
       listen(window,'orientationchange',()=>viewportResize(true),{passive:true});
       if(window.visualViewport)listen(window.visualViewport,'resize',()=>viewportResize(),{passive:true});

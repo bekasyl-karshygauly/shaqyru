@@ -124,6 +124,97 @@ test('Full preview replays the scroll scene without duplicate controllers',async
   await preview.close();
 });
 
+test('Mobile full preview replay and skip work when instant scroll behavior is unsupported',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  await page.addInitScript(()=>{
+    const scroll=window.scrollTo.bind(window);
+    window.scrollTo=(position,...rest)=>{
+      if(position?.behavior==='instant')throw new TypeError('Unsupported ScrollOptions.behavior');
+      return scroll(position,...rest);
+    };
+  });
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');
+  const nonce=await page.evaluate(data=>{const nonce=crypto.randomUUID();sessionStorage.setItem('shq-preview:'+nonce,JSON.stringify({...data,anim:'bloom'}));return nonce},data);
+  await page.goto('/preview#'+nonce);await expect(page.locator('[data-test-intro]')).toBeVisible();
+  await page.evaluate(()=>{document.documentElement.style.scrollBehavior='auto';scrollTo(0,document.documentElement.scrollHeight)});
+  let triggerCount;
+  for(let attempt=0;attempt<3;attempt++){
+    await page.locator('[data-test-intro]').click();
+    await expect(page.locator('.scene-bloom')).toBeVisible();
+    await expect.poll(()=>page.evaluate(()=>scrollY)).toBe(0);
+    await page.waitForTimeout(120);expect(await page.evaluate(()=>scrollY)).toBe(0);
+    await expect(page.locator('.intro .seal')).toBeFocused();
+    const ids=await page.evaluate(()=>ScrollTrigger.getAll().map(trigger=>trigger.vars.id));
+    triggerCount??=ids.length;expect(ids.length).toBe(triggerCount);expect(new Set(ids).size).toBe(ids.length);
+    await page.keyboard.press('Escape');await expect(page.locator('.intro')).toBeHidden();
+  }
+  expect(errors).toEqual([]);
+});
+
+test('Shared scroll clocks avoid redundant text seeks and inert mutations',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await guest(page,'env');await progress(page,.18);
+  const result=await page.evaluate(async()=>{
+    const descriptor=Object.getOwnPropertyDescriptor(Animation.prototype,'currentTime');
+    let textWrites=0,inertWrites=0;
+    Object.defineProperty(Animation.prototype,'currentTime',{...descriptor,set(value){if(this.effect?.target?.matches?.('.inv .nm')&&this.effect.getTiming().iterations!==Infinity)textWrites++;descriptor.set.call(this,value)}});
+    const observer=new MutationObserver(records=>{inertWrites+=records.filter(record=>record.attributeName==='inert').length});
+    observer.observe(document.body,{attributes:true,subtree:true,attributeFilter:['inert']});
+    const trigger=ScrollTrigger.getById('invitation-opening'),part=document.querySelector('.efl');
+    const first=getComputedStyle(part).transform;
+    try{
+      for(const progress of [.21,.24,.27,.30,.33,.36]){
+        scrollTo({top:trigger.end*progress,behavior:'instant'});ScrollTrigger.update();await new Promise(requestAnimationFrame);
+      }
+      await new Promise(requestAnimationFrame);
+      inertWrites+=observer.takeRecords().length;
+      return {textWrites,inertWrites,moved:getComputedStyle(part).transform!==first};
+    }finally{observer.disconnect();Object.defineProperty(Animation.prototype,'currentTime',descriptor)}
+  });
+  expect(result.moved).toBe(true);expect(result.textWrites).toBe(0);expect(result.inertWrites).toBe(0);
+});
+
+test('Mobile decoration time follows scroll distance and layout refresh waits for scroll end',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await guest(page,'env',{fx:'petals'});await progress(page,.8);
+  const clock=await page.locator('.inv .fx span').first().evaluate(element=>({
+    time:element.getAnimations().find(animation=>animation.effect.getTiming().iterations===Infinity)?.currentTime,
+    scroll:scrollY
+  }));
+  expect(clock.time).toBeGreaterThan(0);expect(clock.time).toBeLessThanOrEqual(clock.scroll*4+1);
+  await expect.poll(()=>page.evaluate(()=>ScrollTrigger.isScrolling())).toBe(false);
+  await page.waitForTimeout(250);
+  const during=await page.evaluate(async()=>{
+    const original=ScrollTrigger.refresh;window.__layoutRefreshes=0;
+    ScrollTrigger.refresh=(...args)=>{window.__layoutRefreshes++;return original(...args)};
+    const host=document.getElementById('vg'),trigger=ScrollTrigger.getById('invitation-opening');
+    scrollTo({top:trigger.end*.3+4,behavior:'instant'});await new Promise(requestAnimationFrame);
+    for(let i=0;i<8;i++){
+      scrollTo({top:trigger.end*.3+(i+2)*4,behavior:'instant'});ScrollTrigger.update();host.style.gap=(17+i)+'px';
+      await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);
+    }
+    return {refreshes:window.__layoutRefreshes,scrolling:ScrollTrigger.isScrolling()};
+  });
+  expect(during.scrolling).toBe(true);expect(during.refreshes).toBe(0);
+  await expect.poll(()=>page.evaluate(()=>window.__layoutRefreshes)).toBe(1);
+});
+
+test('Reduced preference stops the global animation loop and restores the same scroll controls',async({page})=>{
+  await page.addInitScript(()=>{window.motionFrames=0;const raf=requestAnimationFrame.bind(window);window.requestAnimationFrame=callback=>raf(time=>{window.motionFrames++;callback(time)})});
+  await page.setViewportSize({width:390,height:844});await guest(page,'bloom');
+  const count=await page.evaluate(()=>ScrollTrigger.getAll().length);
+  for(let attempt=0;attempt<2;attempt++){
+    await page.emulateMedia({reducedMotion:'reduce'});await expect(page.locator('.intro')).toHaveCount(0);
+    expect(await page.evaluate(()=>ScrollTrigger.getAll().length)).toBe(0);
+    // Let already queued callbacks finish once, then require a truly idle page.
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const frames=await page.evaluate(()=>window.motionFrames);await page.waitForTimeout(220);
+    expect(await page.evaluate(()=>window.motionFrames)).toBe(frames);
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await expect.poll(()=>page.evaluate(()=>ScrollTrigger.getAll().length)).toBe(count);
+    await progress(page,.35);await expect(page.locator('.scene-bloom')).toBeVisible();
+  }
+});
+
 test('Small Kazakh invitation retains automatic zoom and responsive scroll geometry',async({page})=>{
   await page.setViewportSize({width:320,height:740});
   await guest(page,'auto',{dsg:2,lang:'kz'});await expect(page.locator('.intro-zoom')).toBeVisible();
