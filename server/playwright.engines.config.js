@@ -6,7 +6,7 @@ export default {...base,timeout:60000,workers:1,
   projects:[
     {name:'chromium',testMatch:'browser-engines.spec.js',use:{browserName:'chromium',launchOptions:{args:['--js-flags=--max-old-space-size=128','--renderer-process-limit=1','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']}}},
     {name:'webkit',testMatch:'browser-engines.spec.js',use:{browserName:'webkit'}},
-    {name:'firefox',testMatch:'browser-engines.spec.js',use:{browserName:'firefox',launchOptions:{timeout:30000}}},
+    {name:'firefox',testMatch:'browser-engines.spec.js',use:{browserName:'firefox',headless:!process.env.CI,launchOptions:{timeout:30000,firefoxUserPrefs:{'webgl.force-enabled':true}}}},
     {name:'regression',testMatch:['invitation-scroll.spec.js','invitation-webgl.spec.js','mobile-webgl-performance.spec.js'],use:{browserName:'chromium',launchOptions:{args:['--js-flags=--max-old-space-size=128','--renderer-process-limit=1','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']}}}
   ]
 };

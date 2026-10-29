@@ -17,6 +17,8 @@ jobs:
   browser-engines:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      LIBGL_ALWAYS_SOFTWARE: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -24,28 +26,28 @@ jobs:
           node-version: 24
       - name: Assemble the repository upload layout
         run: |
-          mkdir .browser-runtime
-          cp -a server/. .browser-runtime/
-          cp -a public .browser-runtime/public
-          cp -a assets/tests .browser-runtime/tests
-          mkdir -p .browser-runtime/public/covers
-          cp -a assets/covers/. .browser-runtime/public/covers/
+          mkdir browser-runtime
+          cp -a server/. browser-runtime/
+          cp -a public browser-runtime/public
+          cp -a assets/tests browser-runtime/tests
+          mkdir -p browser-runtime/public/covers
+          cp -a assets/covers/. browser-runtime/public/covers/
       - name: Install test dependencies and official engines
-        working-directory: .browser-runtime
+        working-directory: browser-runtime
         run: |
           npm ci
           npx playwright install --with-deps chromium webkit firefox
       - name: Test opening, reversal, worker fallback and lifecycle in all engines
-        working-directory: .browser-runtime
+        working-directory: browser-runtime
         run: |
           npm run check
-          npx playwright test --config playwright.engines.config.js
+          xvfb-run -a npx playwright test --config playwright.engines.config.js
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: invitation-browser-evidence
           path: |
-            .browser-runtime/test-results
-            .browser-runtime/preview-engine-*.png
+            browser-runtime/test-results
+            browser-runtime/preview-engine-*.png
           retention-days: 7

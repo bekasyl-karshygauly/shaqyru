@@ -6,6 +6,7 @@ test.beforeEach(async({page})=>{
 });
 async function open(page,anim='env'){
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  page.on('console',message=>{if(/THREE\.WebGLProgram|shader error|Error compiling|ERROR: 0:\d+/i.test(message.text()))errors.push(message.text())});
   await page.route('**/api/i/**',r=>r.fulfill({json:{data:{...data,anim},preview:false}}));
   await page.goto('/i/12345678');await expect(page.locator('.scroll-controlled')).toBeVisible();
   await expect.poll(()=>page.evaluate(()=>!!window.ScrollTrigger?.getById('invitation-opening'))).toBe(true);
@@ -35,6 +36,10 @@ for(const [anim,part]of Object.entries({env:'.efl',doors:'.door-l',scroll:'.sc-t
 
 test('worker material cannot block HTML; unsupported worker retains compatible materials',async({page})=>{
   const errors=await open(page,'mosaic');await expect(page.locator('[data-webgl-state="ready"]')).toHaveCount(1);
+  await expect.poll(()=>page.locator('canvas[data-webgl-layer="opening"]').evaluateAll(nodes=>{
+    const probe=document.createElement('canvas'),context=probe.getContext('2d',{willReadFrequently:true});
+    return nodes.some(canvas=>{probe.width=canvas.width;probe.height=canvas.height;context.drawImage(canvas,0,0);const data=context.getImageData(0,0,probe.width,probe.height).data;for(let i=3;i<data.length;i+=28)if(data[i]>0)return true;return false});
+  })).toBe(true);
   const backend=await page.locator('[data-webgl-backend]').getAttribute('data-webgl-backend');
   if(backend==='main'){
     await seek(page,.35);await expect.poll(()=>page.locator('[data-webgl-state]').getAttribute('data-webgl-opening')).toBe(await page.locator('.intro').getAttribute('data-progress'));
